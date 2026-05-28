@@ -29,12 +29,14 @@ namespace gnut
         t_gxml("kml"),
         _read(false),
         _flt(0),
+        _flt_float(0),
+        _flt_ppprtk(0),
         _kml(false),
         _beg_end(true)
     {
         t_gppp::_get_settings();
 
-        this->_setOut(); 
+        this->_setOut();
 
         _epoch.tsys(t_gtime::GPS);
 
@@ -65,6 +67,8 @@ namespace gnut
         t_gxml("kml"),
         _read(false),
         _flt(0),
+        _flt_float(0),
+        _flt_ppprtk(0),
         _kml(false),
         _beg_end(true)
     {
@@ -127,6 +131,24 @@ namespace gnut
                 _flt->close();
             };
             delete _flt;
+        }
+
+        if (_flt_float)
+        {
+            if (_flt_float->is_open())
+            {
+                _flt_float->close();
+            };
+            delete _flt_float;
+        }
+
+        if (_flt_ppprtk)
+        {
+            if (_flt_ppprtk->is_open())
+            {
+                _flt_ppprtk->close();
+            };
+            delete _flt_ppprtk;
         }
 
         this->write(_kml_name);
@@ -227,6 +249,26 @@ namespace gnut
             _flt->tsys(t_gtime::GPS);
             _flt->mask(tmp);
             _flt->append(dynamic_cast<t_gsetout *>(_set)->append());
+        }
+
+        tmp = dynamic_cast<t_gsetout *>(_set)->outputs("flt_float");
+        if (!tmp.empty() && !_read)
+        {
+            substitute(tmp, "$(rec)", _site, false);
+            _flt_float = new t_giof;
+            _flt_float->tsys(t_gtime::GPS);
+            _flt_float->mask(tmp);
+            _flt_float->append(dynamic_cast<t_gsetout *>(_set)->append());
+        }
+
+        tmp = dynamic_cast<t_gsetout *>(_set)->outputs("flt_ppprtk");
+        if (!tmp.empty() && !_read)
+        {
+            substitute(tmp, "$(rec)", _site, false);
+            _flt_ppprtk = new t_giof;
+            _flt_ppprtk->tsys(t_gtime::GPS);
+            _flt_ppprtk->mask(tmp);
+            _flt_ppprtk->append(dynamic_cast<t_gsetout *>(_set)->append());
         }
 
         tmp = dynamic_cast<t_gsetout *>(_set)->outputs("kml");

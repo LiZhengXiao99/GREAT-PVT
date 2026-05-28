@@ -43,6 +43,7 @@ namespace gnut
         _method_flt = "kalman";
         _reset_amb = 0;
         _reset_par = 0;
+        _init_period = 0;
     }
 
     t_gsetflt::~t_gsetflt()
@@ -233,6 +234,14 @@ namespace gnut
         return 0;
     }
 
+    int t_gsetflt::init_period()
+    {
+        _gmutex.lock();
+        int tmp = _doc.child(XMLKEY_ROOT).child(XMLKEY_FLT).attribute("init_period").as_int();
+        _gmutex.unlock();
+        return tmp;
+    }
+
     void t_gsetflt::check()
     {
         _gmutex.lock();
@@ -256,6 +265,7 @@ namespace gnut
         _default_attr(node, "rndwk_vion", _rndwk_vion);
         _default_attr(node, "reset_amb", _reset_amb);
         _default_attr(node, "reset_par", _reset_par);
+        _default_attr(node, "init_period", _init_period);
 
         _gmutex.unlock();
         return;

@@ -159,6 +159,9 @@ namespace gnut
         /** @brief get Qx */
         SymmetricMatrix Qx() { return _Qx; }
 
+        /** @brief get Qx0 */
+        SymmetricMatrix Qx0() { return _Qx0; }
+
         /** @brief get param */
         t_gallpar param() { return _param; }
 

@@ -58,6 +58,8 @@ namespace gnut
         xml_node line;                      ///< working line read from
         bool _read;                         ///< is read
         t_giof *_flt;                       ///< filter file 
+        t_giof *_flt_float;                 ///< filter file for float solution
+        t_giof *_flt_ppprtk;                ///< filter file for PPP-RTK solution
         string _kml_name;                   ///< kml name
         bool _kml;                          ///< is kml
         bool _beg_end;                      ///< processing direction

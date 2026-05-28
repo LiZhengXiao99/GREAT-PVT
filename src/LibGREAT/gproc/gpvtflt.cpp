@@ -13,6 +13,7 @@
 #include "gmodels/gprecisebias.h"
 #include "gmodels/gprecisebiasGPP.h"
 #include <algorithm>
+#include <cmath>
 #include "gproc/gqualitycontrol.h"
 #include "gio/grtlog.h"
 
@@ -69,6 +70,14 @@ great::t_gpvtflt::t_gpvtflt(string mark, string mark_base, t_gsetbase *gset, t_g
     _frequency = dynamic_cast<t_gsetproc *>(gset)->frequency();
     _slip_model = dynamic_cast<t_gsetproc *>(gset)->slip_model();
     _gpre = make_shared<t_gpreproc>(_gobs, gset);
+
+    // init_period / re-convergence settings
+    _init_period = dynamic_cast<t_gsetflt *>(gset)->init_period();
+    _reconv_countdown = 0;
+    _fix_fail_cnt = 0;
+    _reconv_trigger = dynamic_cast<t_gsetproc *>(gset)->reconv_trigger();
+    _reconv_crd_jump = dynamic_cast<t_gsetproc *>(gset)->reconv_crd_jump();
+    _reconv_fix_fail = dynamic_cast<t_gsetproc *>(gset)->reconv_fix_fail();
     _gpre->spdlog(_spdlog);
     _gpre->setNav(_gnav);
 
@@ -80,6 +89,7 @@ great::t_gpvtflt::t_gpvtflt(string mark, string mark_base, t_gsetbase *gset, t_g
     if (_fix_mode != FIX_MODE::NO)
     {
         _ambfix = new t_gambiguity(_site, _set);
+        _ambfix_ppprtk = new t_gambiguity(_site, _set);
     }
 
     shared_ptr<t_gbiasmodel> precise_bias(new t_gprecisebiasGPP(_allproc, gset));
@@ -110,6 +120,20 @@ great::t_gpvtflt::t_gpvtflt(string mark, string mark_base, t_gsetbase *gset, t_g
     _wl_Upd_time = t_gtime(WL_IDENTIFY);
     _ewl_Upd_time = t_gtime(EWL_IDENTIFY);
     _receiverType = dynamic_cast<t_gsetproc *>(_set)->get_receiverType();
+    _aug_writer = nullptr;
+    _ppprtk = nullptr;
+    t_gsetout *gsetout = dynamic_cast<t_gsetout *>(_set);
+    string aug_path;
+    if (gsetout) aug_path = gsetout->outputs("aug");
+    if (_spdlog)
+        SPDLOG_LOGGER_INFO(_spdlog, "aug_path: [" + aug_path + "], observ: " + int2str((int)_observ));
+    if (!aug_path.empty() && (_observ == OBSCOMBIN::RAW_ALL || _observ == OBSCOMBIN::RAW_MIX))
+    {
+        _aug_writer = new t_gaugwriter(_set, _spdlog);
+        _aug_writer->setSite(_site);
+        if (_spdlog)
+            SPDLOG_LOGGER_INFO(_spdlog, "AUG writer enabled for site: " + _site);
+    }
 }
 great::t_gpvtflt::t_gpvtflt(string mark, string mark_base, t_gsetbase *gset, t_spdlog spdlog, t_gallproc *allproc)
     : t_gspp(mark, gset, spdlog),
@@ -163,14 +187,28 @@ great::t_gpvtflt::t_gpvtflt(string mark, string mark_base, t_gsetbase *gset, t_s
     _gpre = make_shared<t_gpreproc>(_gobs, gset);
     _gpre->spdlog(_spdlog);
     _gpre->setNav(_gnav);
+
+    // init_period / re-convergence settings
+    _init_period = dynamic_cast<t_gsetflt *>(gset)->init_period();
+    _reconv_countdown = 0;
+    _fix_fail_cnt = 0;
+    _reconv_trigger = dynamic_cast<t_gsetproc *>(gset)->reconv_trigger();
+    _reconv_crd_jump = dynamic_cast<t_gsetproc *>(gset)->reconv_crd_jump();
+    _reconv_fix_fail = dynamic_cast<t_gsetproc *>(gset)->reconv_fix_fail();
     if (_ambfix)
     {
         delete _ambfix;
         _ambfix = nullptr;
     }
+    if (_ambfix_ppprtk)
+    {
+        delete _ambfix_ppprtk;
+        _ambfix_ppprtk = nullptr;
+    }
     if (_fix_mode != FIX_MODE::NO)
     {
         _ambfix = new t_gambiguity(_site, _set);
+        _ambfix_ppprtk = new t_gambiguity(_site, _set);
     }
     shared_ptr<t_gbiasmodel> precise_bias(new t_gprecisebiasGPP(_allproc, _spdlog, gset));
     if (!_isBase)
@@ -199,11 +237,30 @@ great::t_gpvtflt::t_gpvtflt(string mark, string mark_base, t_gsetbase *gset, t_s
     _wl_Upd_time = t_gtime(WL_IDENTIFY);
     _ewl_Upd_time = t_gtime(EWL_IDENTIFY);
     _receiverType = dynamic_cast<t_gsetproc *>(_set)->get_receiverType();
+    _aug_writer = nullptr;
+    _ppprtk = nullptr;
+    t_gsetout *gsetout2 = dynamic_cast<t_gsetout *>(_set);
+    string aug_path2;
+    if (gsetout2) aug_path2 = gsetout2->outputs("aug");
+    if (!aug_path2.empty() && (_observ == OBSCOMBIN::RAW_ALL || _observ == OBSCOMBIN::RAW_MIX))
+    {
+        _aug_writer = new t_gaugwriter(_set, _spdlog);
+        _aug_writer->setSite(_site);
+    }
 }
 
 great::t_gpvtflt::~t_gpvtflt()
 {
-
+    if (_aug_writer)
+    {
+        delete _aug_writer;
+        _aug_writer = nullptr;
+    }
+    if (_ppprtk)
+    {
+        delete _ppprtk;
+        _ppprtk = nullptr;
+    }
     if (_ambfix)
     {
         delete _ambfix;
@@ -1219,7 +1276,7 @@ int great::t_gpvtflt::_processEpochVel()
     param_vel.addParam(t_gpar(_site, par_type::VEL_Z, ++ipar, ""));
     param_vel.addParam(t_gpar(_site, par_type::CLK_RAT, ++ipar, ""));
 
-    if (!_initialized || _Qx_vel(1, 1) == 0)
+    if (!_initialized || _Qx_vel(1, 1) == 0 || _reconv_countdown > 0)
     {
         for (int i = 1; i <= 3; i++)
         {
@@ -1364,6 +1421,7 @@ int great::t_gpvtflt::_processEpoch(const t_gtime &runEpoch)
         {
             if (_initialized)
             {
+                _checkReconverge();
                 _predict(runEpoch); 
             }
             return -1;
@@ -1371,6 +1429,7 @@ int great::t_gpvtflt::_processEpoch(const t_gtime &runEpoch)
 
         QsavBP = _Qx;
         XsavBP = _param;
+        _checkReconverge();
         _predict(runEpoch);
         _initialized = true;
 
@@ -1526,6 +1585,44 @@ int great::t_gpvtflt::_processEpoch(const t_gtime &runEpoch)
 
     t_gallpar param_after = _param;
 
+    // Update lock epochs and max elevation for AUG output
+    set<string> curr_sats;
+    for (auto it = _data.begin(); it != _data.end(); ++it)
+        curr_sats.insert(it->sat());
+
+    for (auto it = _lock_epo_num.begin(); it != _lock_epo_num.end();)
+    {
+        string prn = it->first;
+        if (curr_sats.find(prn) == curr_sats.end())
+        {
+            it = _lock_epo_num.erase(it);
+            _el_max_deg.erase(prn);
+        }
+        else
+            ++it;
+    }
+
+    for (auto it = _data.begin(); it != _data.end(); ++it)
+    {
+        string prn = it->sat();
+        if (it->islip())
+        {
+            _lock_epo_num[prn] = 1;
+            _el_max_deg[prn] = it->ele_deg();
+        }
+        else if (_lock_epo_num.find(prn) == _lock_epo_num.end())
+        {
+            _lock_epo_num[prn] = 1;
+            _el_max_deg[prn] = it->ele_deg();
+        }
+        else
+        {
+            _lock_epo_num[prn]++;
+            if (it->ele_deg() > _el_max_deg[prn])
+                _el_max_deg[prn] = it->ele_deg();
+        }
+    }
+
 	_amb_resolution();
 	if (_amb_state) _postRes(A, P, l,dx);
 
@@ -1533,6 +1630,9 @@ int great::t_gpvtflt::_processEpoch(const t_gtime &runEpoch)
     {
         _param[iPar].value(_param[iPar].value() + dx(_param[iPar].index));
     }
+
+    if (_reconv_countdown > 0)
+        _reconv_countdown--;
 
     return _amb_state ? 1 : 0;
 }
@@ -1544,11 +1644,53 @@ int great::t_gpvtflt::_amb_resolution()
     _param_fixed = _filter->param();
     _amb_state = false;
 
+    // Backup float solution for standard float output and PPP-RTK
+    t_gallpar param_float = _filter->param();
+    ColumnVector dx_float = _filter->dx();
+    SymmetricMatrix Qx_float = _filter->Qx();
+
+    // Build posterior float parameters (apriori + dx) for flt_float output
+    t_gallpar param_float_post = param_float;
+    for (int i = 0; i < param_float_post.parNumber(); i++)
+    {
+        param_float_post[i].value(param_float_post[i].value() + dx_float(param_float_post[i].index));
+    }
+
     /*cout << _epoch.str_ymdhms() << endl;
     for (int i = 0; i < _param_fixed.parNumber(); i++)
     {
         cout << fixed << setw(20) << " Float EPO  " << setw(20) << _filter->param()[i].str_type() + "  " << setw(20) << setprecision(5) << _filter->param()[i].value() << setw(15) << setprecision(5) << _filter->dx()(i + 1) << setw(20) << setprecision(5) << _filter->param()[i].value() + _filter->dx()(i + 1) << setw(20) << setprecision(5) << _filter->stdx()(i + 1) << endl;
     }*/
+
+    // Backup PPP float filter state BEFORE standard AR for PPP-RTK augmentation.
+    // This ensures the AUG-enhanced solution starts from the unmodified float state,
+    // avoiding the GNSS observation reprocessing issue caused by resetQ()+update().
+    t_kalman* flt_float_backup = nullptr;
+    if (_ppprtk && _ppprtk->enabled() && _flt_ppprtk && _ambfix_ppprtk)
+    {
+        flt_float_backup = new t_kalman(*static_cast<t_kalman*>(_filter));
+
+        // Convert the deep-copied filter to a "posterior-only" state:
+        // _param holds the float posterior, _dx is zeroed, and _Qx0=_Qx
+        // so resetQ() restores the posterior covariance.  Then clear
+        // _A/_P/_l and _nobs_total so add_virtual_obs starts clean.
+        t_gallpar param_post_bak = flt_float_backup->param();
+        ColumnVector dx_bak = flt_float_backup->dx();
+        for (int i = 0; i < param_post_bak.parNumber(); i++)
+        {
+            param_post_bak[i].value(param_post_bak[i].value() + dx_bak(param_post_bak[i].index));
+        }
+        int nPar_bak = flt_float_backup->npar_number();
+        ColumnVector dx_zero_bak(nPar_bak); dx_zero_bak = 0.0;
+        flt_float_backup->add_data(param_post_bak, dx_zero_bak,
+                                   flt_float_backup->Qx(), flt_float_backup->sigma0(), flt_float_backup->Qx());
+
+        Matrix A_empty(0, nPar_bak);
+        SymmetricMatrix P_empty(0);
+        ColumnVector l_empty(0);
+        flt_float_backup->add_data(A_empty, P_empty, l_empty);
+        flt_float_backup->add_data(0.0, 0, nPar_bak);
+    }
 
     if (_fix_mode != FIX_MODE::NO )
     {
@@ -1631,11 +1773,11 @@ int great::t_gpvtflt::_amb_resolution()
         {
             cout << fixed << setw(20) << " Fix EPO  " << setw(20) << _filter->param()[i].str_type() + "  " << setw(20) << setprecision(5) << _ambfix->getFinalParams()[i].value() << setw(15) << setprecision(5) << _filter->dx()(i + 1) << setw(20) << setprecision(5) << _filter->param()[i].value() + _filter->dx()(i + 1) << setw(20) << setprecision(5) << _filter->stdx()(i + 1) << endl;
         }*/
+
         _param_fixed = _ambfix->getFinalParams();
         _prtOut(_epoch, _param_fixed, _filter->Qx(), _data, os, line, true);
         _prt_port(_epoch, _param_fixed, _filter->Qx(), _data);
-        cout << _epoch.str_ymdhms() << endl;
-	}
+    }
     else
     {
         for (unsigned int iPar = 0; iPar < _param_fixed.parNumber(); iPar++)
@@ -1646,6 +1788,8 @@ int great::t_gpvtflt::_amb_resolution()
         _prt_port(_epoch, _param_fixed, Qx_tmp, _data);
     }
 
+    _extractAugCorrections();
+
     // Print flt results
     if (_flt)
     {
@@ -1653,9 +1797,328 @@ int great::t_gpvtflt::_amb_resolution()
         _flt->flush();
     }
 
+    // Print standard PPP float results (without AUG enhancement) to flt_float file.
+    // This is output regardless of standard PPP-AR success/failure, and always
+    // prior to any PPP-RTK AUG processing so it remains un-augmented.
+    if (_flt_float)
+    {
+        ostringstream os_float;
+        bool saved_amb_state = _amb_state;
+        _amb_state = false;   // force Float status in output
+        _prtOut(_epoch, param_float_post, Qx_float, _data, os_float, line, false);
+        _amb_state = saved_amb_state;
+        _flt_float->write(os_float.str().c_str(), os_float.str().size());
+        _flt_float->flush();
+    }
+
+    // ===== PPP-RTK: AUG-enhanced ambiguity resolution =====
+    // Use an independent filter based on the standard PPP float solution,
+    // so that PPP-RTK is completely decoupled from the standard PPP-AR.
+    if (_ppprtk && _ppprtk->enabled() && _flt_ppprtk && _ambfix_ppprtk && flt_float_backup)
+    {
+        // Setup independent _ambfix_ppprtk with same settings as _ambfix
+        _ambfix_ppprtk->setLOG(_spdlog);
+        _ambfix_ppprtk->setWaveLength(_glofrq_num);
+        _ambfix_ppprtk->setUPD(_gupd);
+        _ambfix_ppprtk->setObsType(_observ);
+        _ambfix_ppprtk->setActiveAmb(flt_float_backup->npar_number());
+        if (_observ == OBSCOMBIN::IONO_FREE)
+            _ambfix_ppprtk->setMW(_MW[_epoch]);
+        else
+        {
+            _ambfix_ppprtk->setELE(_crt_ele);
+            _ambfix_ppprtk->setSNR(_crt_SNR);
+        }
+        _ambfix_ppprtk->setSatRef(_sat_ref);
+
+        Matrix A_aug;
+        DiagonalMatrix P_aug;
+        ColumnVector l_aug;
+        int n_stec = 0, n_zwd = 0;
+        
+        t_gflt* flt_for_ar = flt_float_backup;
+        t_gallpar param_for_out = flt_float_backup->param();
+        for (int i = 0; i < param_for_out.parNumber(); i++)
+        {
+            param_for_out[i].value(param_for_out[i].value() + flt_float_backup->dx()(param_for_out[i].index));
+        }
+        SymmetricMatrix Qx_for_out = flt_float_backup->Qx();
+        bool has_aug = false;
+        t_kalman* aug_flt = nullptr;
+        
+        // Build constraints using the standard PPP float posterior state
+        t_gallpar param_build = flt_float_backup->param();
+        ColumnVector dx_build = flt_float_backup->dx();
+        if (_ppprtk->buildConstraints(_epoch, param_build, _data, dx_build, _lock_epo_num, Qx_for_out, A_aug, P_aug, l_aug, n_stec, n_zwd))
+        {
+            int n_aug_total = n_stec + n_zwd;
+            int nPar = param_build.parNumber();
+            
+            // Build posterior state from the float backup and use it as prior
+            // for AUG-only update. This avoids GNSS observation reprocessing.
+            t_gallpar param_post = flt_float_backup->param();
+            for (int i = 0; i < param_post.parNumber(); i++)
+            {
+                param_post[i].value(param_post[i].value() + flt_float_backup->dx()(param_post[i].index));
+            }
+            SymmetricMatrix Qx_post = flt_float_backup->Qx();
+            ColumnVector dx_zero(nPar); dx_zero = 0.0;
+            
+            // --- Iterative post-update robust estimation for AUG constraints ---
+            const int MAX_ROBUST_ITER = 5;
+            
+            for (int iter = 0; iter < MAX_ROBUST_ITER; iter++)
+            {
+                if (aug_flt) { delete aug_flt; aug_flt = nullptr; }
+                aug_flt = new t_kalman(*flt_float_backup);
+                
+                SymmetricMatrix P_aug_sym(l_aug.Nrows());
+                P_aug_sym = 0.0;
+                for (int i = 1; i <= l_aug.Nrows(); i++) {
+                    P_aug_sym(i, i) = P_aug(i);
+                }
+                
+                // Replace internal GNSS observations with AUG constraints only,
+                // and set posterior state/covariance as prior so update() processes
+                // AUG exclusively without reprocessing GNSS observations.
+                aug_flt->add_data(A_aug, P_aug_sym, l_aug);
+                aug_flt->add_data(param_post, dx_zero, Qx_post, flt_float_backup->sigma0(), Qx_post);
+                aug_flt->update();
+                
+                // Post-fit standardized residual check (skip on last iter)
+                if (n_aug_total > 0 && iter < MAX_ROBUST_ITER - 1)
+                {
+                    ColumnVector dx_post = aug_flt->dx();
+                    SymmetricMatrix Qx_post_iter = aug_flt->Qx();
+                    
+                    vector<double> std_res_list;
+                    double max_std_res = 0.0;
+                    int idx_max = -1;
+                    
+                    // Only check STEC constraints in RobustEst; ZWD is single-station
+                    // and more reliable, so its weight is never modified here.
+                    for (int i = 1; i <= n_stec; i++)
+                    {
+                        // Post-fit residual: v_post = l - A * dx
+                        double v_post = l_aug(i);
+                        double aqa = 0.0;  // A_row * Qx_post * A_row^T
+                        for (int j = 1; j <= nPar; j++) {
+                            double aj = A_aug(i, j);
+                            if (fabs(aj) < 1e-12) continue;
+                            v_post -= aj * dx_post(j);
+                            for (int k = 1; k <= nPar; k++) {
+                                double ak = A_aug(i, k);
+                                if (fabs(ak) < 1e-12) continue;
+                                aqa += aj * Qx_post_iter(j, k) * ak;
+                            }
+                        }
+                        double Qv = 1.0 / P_aug(i) - aqa;
+                        double std_res = 0.0;
+                        if (Qv > 0.0) {
+                            std_res = fabs(v_post) / sqrt(Qv);
+                        }
+                        std_res_list.push_back(std_res);
+                        if (std_res > max_std_res) {
+                            max_std_res = std_res;
+                            idx_max = i;
+                        }
+                    }
+                    
+                    // Decision logic for robust estimation (2-sigma / 4-sigma + IQR)
+                    bool need_reweight = false;
+                    if (max_std_res < 2.0) {
+                        need_reweight = false;
+                    } else if (max_std_res >= 4.0) {
+                        need_reweight = true;
+                    } else {
+                        // 2.0 <= max_std_res < 4.0: use IQR on standardized residuals
+                        need_reweight = false;
+                        if (std_res_list.size() >= 4) {
+                            vector<double> sorted_sr = std_res_list;
+                            sort(sorted_sr.begin(), sorted_sr.end());
+                            int n = sorted_sr.size();
+                            double Q1 = sorted_sr[n / 4];
+                            double Q3 = sorted_sr[3 * n / 4];
+                            double IQR = Q3 - Q1;
+                            if (IQR > 1e-6) {
+                                double lower = Q1 - 1.5 * IQR;
+                                double upper = Q3 + 1.5 * IQR;
+                                if (max_std_res < lower || max_std_res > upper) {
+                                    need_reweight = true;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (need_reweight && idx_max > 0) {
+                        // Huber-like variance inflation (CalEQW_)
+                        double absr = max_std_res;
+                        double k0 = 2.0, k1 = 5.0, maxFac = 36.0;
+                        double fac;
+                        if (absr <= k0) fac = 1.0;
+                        else if (absr >= k1) fac = maxFac;
+                        else fac = maxFac * (absr - k0) / (k1 - k0);
+                        if (fac < 4.0) fac = 4.0;
+                        if (fac > maxFac) fac = maxFac;
+                        
+                        // Inflate variance => reduce weight (STEC only)
+                        P_aug(idx_max) /= fac;
+                        
+                        if (_spdlog) {
+                            SPDLOG_LOGGER_INFO(_spdlog,
+                                "PPP-RTK RobustEst iter=" + to_string(iter+1) +
+                                " type=STEC idx=" + to_string(idx_max) +
+                                " std_res=" + to_string(max_std_res) +
+                                " fac=" + to_string(fac));
+                        }
+                        continue;  // next iteration with modified weights
+                    }
+                }
+                // Converged or max iter
+                break;
+            }
+            
+            // Build post-AUG parameter values for float fallback
+            param_for_out = param_post;
+            for (int i = 0; i < param_for_out.parNumber(); i++)
+            {
+                param_for_out[i].value(param_for_out[i].value() + aug_flt->dx()(i + 1));
+            }
+            
+            // Set aug_flt internal state to the AUG-enhanced posterior.
+            // Clear _A/_P/_l so that _addFixConstraintWL only processes
+            // ambiguity-fix virtual observations, not the already-consumed
+            // AUG constraints.  _dx is zeroed because the posterior state
+            // is already encoded in _param; updateFixParam will add the
+            // AR increments on top of it.
+            {
+                int nPar_aug = aug_flt->npar_number();
+                Matrix A_empty(0, nPar_aug);
+                SymmetricMatrix P_empty(0);
+                ColumnVector l_empty(0);
+                aug_flt->add_data(A_empty, P_empty, l_empty);
+                aug_flt->add_data(0.0, 0, nPar_aug);
+                
+                ColumnVector dx_zero(nPar_aug); dx_zero = 0.0;
+                aug_flt->add_data(param_for_out, dx_zero,
+                                  aug_flt->Qx(), aug_flt->sigma0(), aug_flt->Qx());
+            }
+            
+            flt_for_ar = aug_flt;
+            Qx_for_out = aug_flt->Qx();
+            has_aug = true;
+        }
+        
+        // Independent EWL/WL/NL ambiguity resolution for PPP-RTK
+        if ((_observ == gnut::OBSCOMBIN::RAW_ALL || _observ == gnut::OBSCOMBIN::RAW_MIX) && _frequency >= 3)
+        {
+            _ambfix_ppprtk->processBatch(_epoch, flt_for_ar, "EWL");
+        }
+        if ((_observ == gnut::OBSCOMBIN::RAW_ALL || _observ == gnut::OBSCOMBIN::RAW_MIX) && _frequency >= 4)
+        {
+            _ambfix_ppprtk->processBatch(_epoch, flt_for_ar, "EWL24");
+        }
+        if ((_observ == gnut::OBSCOMBIN::RAW_ALL || _observ == gnut::OBSCOMBIN::RAW_MIX) && _frequency >= 5)
+        {
+            _ambfix_ppprtk->processBatch(_epoch, flt_for_ar, "EWL25");
+        }
+        if (_observ == OBSCOMBIN::RAW_ALL || (_observ == OBSCOMBIN::RAW_MIX && _frequency >= 2))
+        {
+            _ambfix_ppprtk->processBatch(_epoch, flt_for_ar, "WL");
+        }
+        
+        bool amb_fixed_ppprtk = false;
+        int nlfix_valid = _ambfix_ppprtk->processBatch(_epoch, flt_for_ar, "NL");
+        if (nlfix_valid >= 0 && _ambfix_ppprtk->amb_fixed())
+        {
+            amb_fixed_ppprtk = true;
+        }
+        
+        ostringstream os_ppprtk;
+        bool saved_amb_state = _amb_state;
+        _amb_state = amb_fixed_ppprtk;
+        
+        // Swap _ambfix temporarily so that _prtOut uses PPP-RTK's ratio
+        t_gambiguity* saved_ambfix = _ambfix;
+        _ambfix = _ambfix_ppprtk;
+        
+        if (amb_fixed_ppprtk)
+        {
+            // AR succeeded: use flt_for_ar's updated state
+            t_gallpar param_fixed_ppprtk = flt_for_ar->param();
+            for (int i = 0; i < param_fixed_ppprtk.parNumber(); i++)
+            {
+                param_fixed_ppprtk[i].value(param_fixed_ppprtk[i].value() + flt_for_ar->dx()(i + 1));
+            }
+            _prtOut(_epoch, param_fixed_ppprtk, flt_for_ar->Qx(), _data, os_ppprtk, line, true);
+        }
+        else
+        {
+            // AR failed or not attempted: output float (AUG-enhanced or original)
+            _prtOut(_epoch, param_for_out, Qx_for_out, _data, os_ppprtk, line, true);
+        }
+        
+        _ambfix = saved_ambfix;
+        _amb_state = saved_amb_state;
+        
+        _flt_ppprtk->write(os_ppprtk.str().c_str(), os_ppprtk.str().size());
+        _flt_ppprtk->flush();
+        
+        if (has_aug) {
+            delete aug_flt;
+            aug_flt = nullptr;
+        }
+        delete flt_float_backup;
+        flt_float_backup = nullptr;
+    }
+
     return 1;
 }
 
+void great::t_gpvtflt::_extractAugCorrections()
+{
+    if (!_aug_writer) return;
+
+    // If this station is using external AUG constraints for PPP-RTK,
+    // do not output AUG products to avoid self-augmentation loops
+    // and to prevent confusion between input and output AUG files.
+    if (_ppprtk && _ppprtk->enabled()) return;
+
+    // Set header if not yet written
+    t_gtriple xyz_fix, blh_fix;
+    _param_fixed.getCrdParam(_site, xyz_fix);
+    xyz2ell(xyz_fix, blh_fix, false);
+
+    string rcv_type = _site;
+    shared_ptr<t_grec> grec_ptr = dynamic_pointer_cast<t_grec>(_grec);
+    if (grec_ptr)
+    {
+        rcv_type = grec_ptr->rec(_epoch);
+    }
+
+    if (!_aug_writer->setHeader(xyz_fix, blh_fix, rcv_type, _grec->ant(_epoch), "NONE",
+                                 _beg_time, _end_time,
+                                 dynamic_cast<t_gsetgen *>(_set)->sys()))
+    {
+        return;
+    }
+
+    // Pass per-satellite ambiguity fix states.
+    // For fixed satellites use fixed-solution STEC; for unfixed use float-solution.
+    t_gambiguity* amb_for_aug = _amb_state ? _ambfix : nullptr;
+
+    // Build posterior float parameters (apriori + dx) for AUG output,
+    // so that unfixed satellites get the correct float STEC.
+    t_gallpar param_float_post = _filter->param();
+    ColumnVector dx_flt = _filter->dx();
+    for (int i = 0; i < param_float_post.parNumber(); i++)
+    {
+        param_float_post[i].value(param_float_post[i].value() + dx_flt(param_float_post[i].index));
+    }
+
+    _aug_writer->writeEpoch(_epoch, _param_fixed, param_float_post, _filter->Qx(), _data,
+                            _crt_ele, amb_for_aug, _lock_epo_num, _el_max_deg, _site);
+}
 
 bool t_gpvtflt::_getSatRef()
 {
@@ -1973,6 +2436,52 @@ bool great::t_gpvtflt::InitProc(const t_gtime &begT, const t_gtime &endT, double
             *subint = 1.0 / _scale;
         if (_sampling > 1)
             *subint = pow(10, floor(log10(_sampling)));
+    }
+
+    // Initialize PPP-RTK processor if not yet created
+    if (!_ppprtk)
+    {
+        // Read <aug_input> directly from XML document
+        xml_node aug_node = _set->config_node().child("aug_input");
+        if (aug_node)
+        {
+            string aug_path = aug_node.child_value("path");
+            double iono_cfg = str2dbl(aug_node.child_value("iono"));
+            double trop_cfg = str2dbl(aug_node.child_value("trop"));
+            int wgt_mode = (int)str2dbl(aug_node.child_value("wgt_mode"));
+            
+            // Trim path
+            auto trim = [](string& s) {
+                size_t first = s.find_first_not_of(" \t\n\r");
+                if (first == string::npos) { s.clear(); return; }
+                size_t last = s.find_last_not_of(" \t\n\r");
+                s = s.substr(first, last - first + 1);
+            };
+            trim(aug_path);
+            
+            if (!aug_path.empty() && (iono_cfg != 0.0 || trop_cfg != 0.0))
+            {
+                _ppprtk = new t_gppprtk(aug_path, iono_cfg, trop_cfg, wgt_mode, _spdlog);
+                _ppprtk->setSite(_site);
+                
+                // IQR outlier rejection for STEC constraints
+                string iqr_str = aug_node.child_value("iqr_enabled");
+                bool iqr_enabled = (str2dbl(iqr_str) != 0.0);
+                _ppprtk->setIqrEnabled(iqr_enabled);
+                
+                if (_ppprtk->enabled())
+                {
+                    t_gtriple xyz_rov;
+                    xyz_rov = dynamic_cast<t_gsetrec *>(_set)->get_crd_xyz(_site);
+                    
+                    if (!_ppprtk->initReader(_site, xyz_rov))
+                    {
+                        if (_spdlog)
+                            SPDLOG_LOGGER_WARN(_spdlog, "PPP-RTK disabled due to AUG reader init failure");
+                    }
+                }
+            }
+        }
     }
 
     _prtOutHeader();
@@ -3154,6 +3663,18 @@ void great::t_gpvtflt::_prtOutHeader()
         _flt->write(os.str().c_str(), os.str().size());
         _flt->flush();
     }
+
+    if (_flt_float)
+    {
+        _flt_float->write(os.str().c_str(), os.str().size());
+        _flt_float->flush();
+    }
+
+    if (_flt_ppprtk)
+    {
+        _flt_ppprtk->write(os.str().c_str(), os.str().size());
+        _flt_ppprtk->flush();
+    }
 }
 
 void great::t_gpvtflt::_generateObsIndex(t_gfltEquationMatrix &equ)
@@ -3526,6 +4047,41 @@ void great::t_gpvtflt::_syncAmb()
     return;
 }
 
+bool great::t_gpvtflt::_checkReconverge()
+{
+    if (_init_period <= 0)
+        return false;
+
+    // GKIT-style: periodic re-init at GPS time multiples of init_period.
+    // e.g. init_period=10800 (3h) -> re-init at sow = 0, 10800, 21600, ...
+    double sow = _epoch.sow();
+    double dtmp = fmod(sow, _init_period);
+    if (fabs(dtmp) < 1.0e-3 || fabs(dtmp - _init_period) < 1.0e-3)
+    {
+        _reconv_countdown = 1;   // reset for exactly one epoch
+        _reconv_start = _epoch;
+        if (_spdlog)
+            SPDLOG_LOGGER_WARN(_spdlog, _site + " " + _epoch.str_ymdhms(" epoch ") +
+                " periodic re-init at GPS sow=" + dbl2str(sow, 1) +
+                "s (period=" + int2str(_init_period) + "s)");
+        return true;
+    }
+    return false;
+}
+
+void great::t_gpvtflt::_startReconvergence()
+{
+    // Kept for API compatibility; logic moved into _checkReconverge()
+}
+
+void great::t_gpvtflt::_initx(int idx, double value, double variance)
+{
+    _param[idx].value(value);
+    for (unsigned int jj = 1; jj <= _param.parNumber(); jj++)
+        _Qx(idx + 1, jj) = 0.0;
+    _Qx(idx + 1, idx + 1) = variance;
+}
+
 void great::t_gpvtflt::_predictCrd()
 {
     double crdInit = _sig_init_crd;
@@ -3535,10 +4091,9 @@ void great::t_gpvtflt::_predictCrd()
     i = _param.getParam(_site, par_type::CRD_X, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(_vBanc(1));
-            _Qx(i + 1, i + 1) = crdInit * crdInit;
+            _initx(i, _vBanc(1), crdInit * crdInit);
         }
         else
         {
@@ -3552,10 +4107,9 @@ void great::t_gpvtflt::_predictCrd()
     i = _param.getParam(_site, par_type::CRD_Y, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(_vBanc(2));
-            _Qx(i + 1, i + 1) = crdInit * crdInit;
+            _initx(i, _vBanc(2), crdInit * crdInit);
         }
         else
         {
@@ -3569,10 +4123,9 @@ void great::t_gpvtflt::_predictCrd()
     i = _param.getParam(_site, par_type::CRD_Z, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(_vBanc(3));
-            _Qx(i + 1, i + 1) = crdInit * crdInit;
+            _initx(i, _vBanc(3), crdInit * crdInit);
         }
         else
         {
@@ -3608,10 +4161,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::GLO_ISB, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = _sig_init_glo * _sig_init_glo;
+            _initx(i, 0.0, _sig_init_glo * _sig_init_glo);
         }
         else
         {
@@ -3623,10 +4175,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::GLO_IFCB, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = _sig_init_glo * _sig_init_glo;
+            _initx(i, 0.0, _sig_init_glo * _sig_init_glo);
         }
         else
         {
@@ -3638,10 +4189,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::GAL_ISB, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = _sig_init_gal * _sig_init_gal;
+            _initx(i, 0.0, _sig_init_gal * _sig_init_gal);
         }
         else
         {
@@ -3653,10 +4203,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::BDS_ISB, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = _sig_init_bds * _sig_init_bds;
+            _initx(i, 0.0, _sig_init_bds * _sig_init_bds);
         }
         else
         {
@@ -3668,10 +4217,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::QZS_ISB, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = _sig_init_qzs * _sig_init_qzs;
+            _initx(i, 0.0, _sig_init_qzs * _sig_init_qzs);
         }
         else
         {
@@ -3683,10 +4231,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::IFB_GPS, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = 3000 * 3000;
+            _initx(i, 0.0, 3000 * 3000);
         }
         else
         {
@@ -3697,10 +4244,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::IFB_GAL, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = 3000 * 3000;
+            _initx(i, 0.0, 3000 * 3000);
         }
         else
         {
@@ -3711,10 +4257,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::IFB_GAL_2, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = 3000 * 3000;
+            _initx(i, 0.0, 3000 * 3000);
         }
         else
         {
@@ -3725,10 +4270,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::IFB_GAL_3, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = 3000 * 3000;
+            _initx(i, 0.0, 3000 * 3000);
         }
         else
         {
@@ -3739,10 +4283,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::IFB_BDS, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = 3000 * 3000;
+            _initx(i, 0.0, 3000 * 3000);
         }
         else
         {
@@ -3753,10 +4296,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::IFB_BDS_2, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = 3000 * 3000;
+            _initx(i, 0.0, 3000 * 3000);
         }
         else
         {
@@ -3767,10 +4309,9 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::IFB_BDS_3, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
-            _param[i].value(0.0);
-            _Qx(i + 1, i + 1) = 3000 * 3000;
+            _initx(i, 0.0, 3000 * 3000);
         }
         else
         {
@@ -3781,7 +4322,7 @@ void great::t_gpvtflt::_predictBias()
     i = _param.getParam(_site, par_type::IFB_QZS, "");
     if (i >= 0)
     {
-        if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+        if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
         {
             _Qx(i + 1, i + 1) = 3000 * 3000;
         }
@@ -3825,7 +4366,11 @@ void great::t_gpvtflt::_predictIono(const double& bl, const t_gtime& runEpoch)
                     _param[i].apriori(ionomodel);
                 }
 
-                if (_cntrep == 1 &&
+                if (_reconv_countdown > 0)
+                {
+                    _initx(i, 0.0, _sig_init_vion * _sig_init_vion);
+                }
+                else if (_cntrep == 1 &&
                     !double_eq(_Qx(i + 1, i + 1), _sig_init_vion * _sig_init_vion))
                 {
                     _Qx(i + 1, i + 1) += _ionStoModel->getQ(); // *_ionStoModel->getQ();
@@ -3836,24 +4381,31 @@ void great::t_gpvtflt::_predictIono(const double& bl, const t_gtime& runEpoch)
             if (i >= 0)
             {
                 double var = _sig_init_vion * _sig_init_vion;
-                if (_isBase && double_eq(_Qx(i + 1, i + 1), var))
+                if (_reconv_countdown > 0)
                 {
-                    var *= SQR(bl / (1e4));
-                    _Qx(i + 1, i + 1) = var;
-                    _param[i].value(1e-6);
+                    _initx(i, 0.0, var);
                 }
-                _param[i].value(0.0);
-                _Qx(i + 1, i + 1) = var;
-                if (_cntrep == 1 && !double_eq(_Qx(i + 1, i + 1), var))
+                else
                 {
-
-                    if (_isBase)
+                    if (_isBase && double_eq(_Qx(i + 1, i + 1), var))
                     {
-                        _Qx(i + 1, i + 1) += SQR(bl / (1e4) * cos(it->ele())) * _ionStoModel->getQ();
+                        var *= SQR(bl / (1e4));
+                        _Qx(i + 1, i + 1) = var;
+                        _param[i].value(1e-6);
                     }
-                    else
+                    _param[i].value(0.0);
+                    _Qx(i + 1, i + 1) = var;
+                    if (_cntrep == 1 && !double_eq(_Qx(i + 1, i + 1), var))
                     {
-                        _Qx(i + 1, i + 1) += _ionStoModel->getQ();
+
+                        if (_isBase)
+                        {
+                            _Qx(i + 1, i + 1) += SQR(bl / (1e4) * cos(it->ele())) * _ionStoModel->getQ();
+                        }
+                        else
+                        {
+                            _Qx(i + 1, i + 1) += _ionStoModel->getQ();
+                        }
                     }
                 }
             }
@@ -3869,7 +4421,11 @@ void great::t_gpvtflt::_predictTropo()
     i = _param.getParam(_site, par_type::GRD_N, "");
     if (i >= 0)
     {
-        if (_cntrep == 1 && _initialized)
+        if (_reconv_countdown > 0)
+        {
+            _initx(i, 0.0, _sig_init_grd * _sig_init_grd);
+        }
+        else if (_cntrep == 1 && _initialized)
             _Qx(i + 1, i + 1) += _grdStoModel->getQ();
         if (_smooth)
             _Noise(i + 1, i + 1) = _grdStoModel->getQ();
@@ -3878,7 +4434,11 @@ void great::t_gpvtflt::_predictTropo()
     i = _param.getParam(_site, par_type::GRD_E, "");
     if (i >= 0)
     {
-        if (_cntrep == 1 && _initialized)
+        if (_reconv_countdown > 0)
+        {
+            _initx(i, 0.0, _sig_init_grd * _sig_init_grd);
+        }
+        else if (_cntrep == 1 && _initialized)
             _Qx(i + 1, i + 1) += _grdStoModel->getQ();
         if (_smooth)
             _Noise(i + 1, i + 1) = _grdStoModel->getQ();
@@ -3917,7 +4477,7 @@ void great::t_gpvtflt::_predictTropo()
                     _param[i].apriori(_sig_init_ztd);
                 }
 
-                if (!_initialized || _Qx(i + 1, i + 1) == 0.0)
+                if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
                 {
                     if (_valid_ztd_xml)
                     {
@@ -3930,7 +4490,7 @@ void great::t_gpvtflt::_predictTropo()
                             _param[i].value(tmpgmodel->tropoModel()->getZWD(Ell, _epoch));
                         }
                     }
-                    _Qx(i + 1, i + 1) = ztdInit * ztdInit;
+                    _initx(i, _param[i].value(), ztdInit * ztdInit);
                 }
                 else
                 {
@@ -3955,11 +4515,20 @@ void great::t_gpvtflt::_predictAmb()
             _param[i].parType == par_type::AMB_L4 ||
             _param[i].parType == par_type::AMB_L5)
         {
-
-            if (_cntrep == 1)
-                _Qx(i + 1, i + 1) += _ambStoModel->getQ();
-            if (_smooth)
-                _Noise(i + 1, i + 1) = _ambStoModel->getQ();
+            if (_reconv_countdown > 0)
+            {
+                // Re-convergence: reset ambiguities to zero with large initial variance,
+                // matching GKit behavior so that AR must re-converge from scratch.
+                double ambInit = dynamic_cast<t_gsetproc *>(_set)->sig_init_amb();
+                _initx(i, 0.0, ambInit * ambInit);
+            }
+            else
+            {
+                if (_cntrep == 1)
+                    _Qx(i + 1, i + 1) += _ambStoModel->getQ();
+                if (_smooth)
+                    _Noise(i + 1, i + 1) = _ambStoModel->getQ();
+            }
             _param[i].stime = _param[i].end = _epoch;
         }
     }

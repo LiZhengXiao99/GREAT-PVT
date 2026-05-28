@@ -47,7 +47,10 @@ namespace gnut
         XXX_OUT,
         LOG_OUT,
         PPP_OUT,
-        FLT_OUT
+        FLT_OUT,
+        FLT_FLOAT_OUT,
+        AUG_OUT,
+        FLT_PPPRTK_OUT
     };
 
     class LibGnut_LIBRARY_EXPORT t_gsetout : public virtual t_gsetbase

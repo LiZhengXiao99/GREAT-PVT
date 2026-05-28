@@ -159,6 +159,12 @@ namespace gnut
          */
         int reset_par(double d);
 
+        /**
+         * @brief get the init period for re-convergence [s]
+         * @return int : init period, 0=disabled
+         */
+        int init_period();
+
     protected:
         string _method_flt; ///< type of filtering method (kalman, SRCF)
         double _noise_clk;  ///< white noise for receiver clock [m]
@@ -177,6 +183,7 @@ namespace gnut
         double _rndwk_amb;  ///< random walk process for ambiguity  [mm/sqrt(hour)]
         int _reset_amb;     ///< interval for reseting ambiguity [s]
         int _reset_par;     ///< interval for reseting CRD, ZTD, AMB [s]
+        int _init_period;   ///< init period for re-convergence [s]
 
     private:
     };

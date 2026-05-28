@@ -237,6 +237,15 @@ namespace gnut
         /**@brief posterior residual threshold */
         double max_res_norm();
 
+        /**@brief re-convergence trigger bitmask (1=COORD_JUMP, 2=FIX_FAIL, 4=SLIP) */
+        int reconv_trigger();
+
+        /**@brief coordinate jump threshold for re-convergence [m] */
+        double reconv_crd_jump();
+
+        /**@brief consecutive fix-fail epochs to trigger re-convergence */
+        int reconv_fix_fail();
+
         /**@brief min satellite number */
         int minsat();
 
@@ -326,6 +335,9 @@ namespace gnut
         double _sig_init_qzs;  ///< accuracy of initial QZSS system time difference
         double _minimum_elev;  ///< elevation angle cut-off [degree]
         double _max_res_norm;  ///< normalized residuals threshold
+        int _reconv_trigger;   ///< re-convergence trigger bitmask
+        double _reconv_crd_jump; ///< coordinate jump threshold [m]
+        int _reconv_fix_fail;  ///< consecutive fix-fail epochs
         string _crd_est;       ///< FIX or estimate CRD
         bool _pos_kin;         ///< static/kinematic receiver (true == kinematic)
         int _frequency;        ///< frequency

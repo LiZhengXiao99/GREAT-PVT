@@ -40,6 +40,12 @@ namespace gnut
             return PPP_OUT;
         if (tmp == "FLT")
             return FLT_OUT;
+        if (tmp == "FLT_FLOAT")
+            return FLT_FLOAT_OUT;
+        if (tmp == "AUG")
+            return AUG_OUT;
+        if (tmp == "FLT_PPPRTK")
+            return FLT_PPPRTK_OUT;
         return OFMT(-1);
     }
 
@@ -55,6 +61,12 @@ namespace gnut
             return "PPP";
         case FLT_OUT:
             return "FLT";
+        case FLT_FLOAT_OUT:
+            return "FLT_FLOAT";
+        case AUG_OUT:
+            return "AUG";
+        case FLT_PPPRTK_OUT:
+            return "FLT_PPPRTK";
         default:
             return "UNDEF";
         }

@@ -11,6 +11,7 @@
 #include "gambfix/gambiguity.h"
 #include "gset/gsetgen.h"
 #include "gutils/gobs.h"
+#include "gutils/gfileconv.h"
 #include "gmodels/gpar.h"
 #include <gproc/gfltmatrix.h>
 using namespace std;
@@ -1281,6 +1282,10 @@ namespace great
             sat1 = get<0>(itdd->ddSats[0]);
             sat2 = get<0>(itdd->ddSats[1]);
 
+            // Reset fix flags before re-evaluating for current epoch
+            itdd->isWlFixed = false;
+            itdd->isNlFixed = false;
+
             // Judge Widelane Ambiguity whether can be fixed
             if (sat1.substr(0, 1) != "R") //
             {
@@ -1345,6 +1350,9 @@ namespace great
         {
             sat1 = get<0>(itdd->ddSats[0]);
             sat2 = get<0>(itdd->ddSats[1]);
+
+            // Reset fix flags before re-evaluating for current epoch
+            itdd->isNlFixed = false;
 
             itdd->isEwlFixed = _EWL_flag[sat1][sat2][itdd->site];
             itdd->isEwl24Fixed = _EWL24_flag[sat1][sat2];
@@ -2271,7 +2279,22 @@ namespace great
         //output ratio   file
         string ratio_path = dynamic_cast<t_gsetout *>(_gset)->outputs("ratio"); //xjhan
         if (ratio_path.empty())
-            ratio_path = "ratio-" + _site;
+        {
+            // 基于 <flt> 路径自动推导输出目录
+            string flt_path = dynamic_cast<t_gsetout *>(_gset)->outputs("flt");
+            if (!flt_path.empty())
+            {
+                string flt_dir = gnut::dir_name(flt_path);
+                if (!flt_dir.empty())
+                    ratio_path = flt_dir + PATH_SEPARATOR + "ratio-" + _site;
+                else
+                    ratio_path = "ratio-" + _site;
+            }
+            else
+            {
+                ratio_path = "ratio-" + _site;
+            }
+        }
 
         substitute(ratio_path, "$(rec)", _site, false);
 
@@ -2291,7 +2314,26 @@ namespace great
     void t_gambiguity::_initBootfile()
     {
         //output boot   file
-        string bootfile = "boot-" + _site;
+        string bootfile = dynamic_cast<t_gsetout *>(_gset)->outputs("boot");
+        if (bootfile.empty())
+        {
+            // 基于 <flt> 路径自动推导输出目录
+            string flt_path = dynamic_cast<t_gsetout *>(_gset)->outputs("flt");
+            if (!flt_path.empty())
+            {
+                string flt_dir = gnut::dir_name(flt_path);
+                if (!flt_dir.empty())
+                    bootfile = flt_dir + PATH_SEPARATOR + "boot-" + _site;
+                else
+                    bootfile = "boot-" + _site;
+            }
+            else
+            {
+                bootfile = "boot-" + _site;
+            }
+        }
+
+        substitute(bootfile, "$(rec)", _site, false);
 
         _bootfile = new t_giof;
         _bootfile->tsys(t_gtime::GPS);

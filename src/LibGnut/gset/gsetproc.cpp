@@ -61,6 +61,9 @@ namespace gnut
         _sig_init_qzs = 1000.0;
         _minimum_elev = 10;
         _max_res_norm = 10;
+        _reconv_trigger = 0;
+        _reconv_crd_jump = 1.0;
+        _reconv_fix_fail = 10;
         _crd_est = "EST";
         _pos_kin = false;
         _frequency = 2;
@@ -194,6 +197,39 @@ namespace gnut
             return BASEPOS::CFILE;
         else
             return BASEPOS::SPP; 
+    }
+
+    int t_gsetproc::reconv_trigger()
+    {
+        _gmutex.lock();
+        string tmp = _doc.child(XMLKEY_ROOT).child(XMLKEY_PROC).child_value("reconv_trigger");
+        str_erase(tmp);
+        int tmp_int = _reconv_trigger;
+        if (!tmp.empty()) tmp_int = std::stoi(tmp);
+        _gmutex.unlock();
+        return tmp_int;
+    }
+
+    double t_gsetproc::reconv_crd_jump()
+    {
+        _gmutex.lock();
+        string tmp = _doc.child(XMLKEY_ROOT).child(XMLKEY_PROC).child_value("reconv_crd_jump");
+        str_erase(tmp);
+        double tmp_double = _reconv_crd_jump;
+        if (!tmp.empty()) tmp_double = std::stod(tmp);
+        _gmutex.unlock();
+        return tmp_double;
+    }
+
+    int t_gsetproc::reconv_fix_fail()
+    {
+        _gmutex.lock();
+        string tmp = _doc.child(XMLKEY_ROOT).child(XMLKEY_PROC).child_value("reconv_fix_fail");
+        str_erase(tmp);
+        int tmp_int = _reconv_fix_fail;
+        if (!tmp.empty()) tmp_int = std::stoi(tmp);
+        _gmutex.unlock();
+        return tmp_int;
     }
 
     double t_gsetproc::sig_init_ztd()
@@ -610,6 +646,9 @@ namespace gnut
         _default_node(node, "sig_init_qzs", (to_string(_sig_init_qzs)).c_str());
         _default_node(node, "minimum_elev", (to_string(_minimum_elev)).c_str());
         _default_node(node, "max_res_norm", (to_string(_max_res_norm)).c_str());
+        _default_node(node, "reconv_trigger", (to_string(_reconv_trigger)).c_str());
+        _default_node(node, "reconv_crd_jump", (to_string(_reconv_crd_jump)).c_str());
+        _default_node(node, "reconv_fix_fail", (to_string(_reconv_fix_fail)).c_str());
         _default_node(node, "crd_constr", _crd_est.c_str());
         _default_node(node, "pos_kin", _pos_kin == true ? "true" : "false");
         _default_node(node, "sd_sat", _sd_sat == true ? "true" : "false");

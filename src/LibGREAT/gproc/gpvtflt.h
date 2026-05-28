@@ -20,6 +20,9 @@
 #include "gmodels/gcombmodel.h"
 #include "gproc/gpreproc.h"
 #include "gproc/gfltmatrix.h"
+#include "gproc/gaugwriter.h"
+#include "gaugrtk/gaugrdr.h"
+#include "gaugrtk/t_gppprtk.h"
 
 using namespace gsins;
 
@@ -186,6 +189,9 @@ namespace great
         /** @brief slip detect. */
         bool _slip_detect(const t_gtime& now);
         
+        /** @brief extract AUG corrections. */
+        void _extractAugCorrections();
+        
         /** @brief add filter epoch data. */
         int _getData(const t_gtime& now, vector <t_gsatdata>* data, bool isBase);
 
@@ -215,6 +221,15 @@ namespace great
         
         /** @brief predictIono. */
         void _predictIono(const double &bl, const t_gtime& runEpoch);
+
+        /** @brief check if re-convergence should be triggered. */
+        bool _checkReconverge();
+
+        /** @brief start re-convergence countdown. */
+        void _startReconvergence();
+
+        /** @brief reset parameter value and decouple its covariance (like GKIT initx). */
+        void _initx(int idx, double value, double variance);
 
         /** @brief predict Tropo. */
         void _predictTropo();
@@ -246,7 +261,8 @@ namespace great
         set<string> _sat_ref;              ///< reference sat 
         map<GSYS, string> _ipSatRep;       ///< input reference satellite
         t_gupd *_gupd = nullptr;           ///< upd
-        t_gambiguity *_ambfix = nullptr;   ///< ambfix
+        t_gambiguity *_ambfix = nullptr;   ///< ambfix for PPP-AR
+        t_gambiguity *_ambfix_ppprtk = nullptr; ///< ambfix for PPP-RTK (independent state)
         FIX_MODE _fix_mode;                ///< fix mode
         UPD_MODE _upd_mode = UPD_MODE::UPD;///< upd mode
         t_map_MW _MW, _EWL, _LW, _LE, _LWL, _rMW, _rEWL, _IMW, _IEWL, _PW, _AFIF;///< t_map
@@ -272,6 +288,18 @@ namespace great
         int _realnobs;                    ///< number of obs
         RECEIVERTYPE _receiverType;       ///< receiver Type
         map<string, string> _sat_freqs;   ///< sat freqs
+        t_gaugwriter *_aug_writer;        ///< aug writer
+        t_gppprtk *_ppprtk;               ///< PPP-RTK constraint injector
+        map<string, int> _lock_epo_num;   ///< lock epochs per sat
+        map<string, double> _el_max_deg;  ///< max elevation per sat arc
+        int _init_period;                 ///< re-convergence period [s], 0=disabled
+        int _reconv_countdown;            ///< remaining re-convergence epochs
+        int _fix_fail_cnt;                ///< consecutive fix-fail epoch counter
+        t_gtime _reconv_start;            ///< re-convergence start epoch for logging
+        t_gtriple _prev_crd;              ///< previous epoch coordinate for jump detection
+        int _reconv_trigger;              ///< re-convergence trigger bitmask
+        double _reconv_crd_jump;          ///< coordinate jump threshold [m]
+        int _reconv_fix_fail;             ///< consecutive fix-fail epochs threshold
     };
     template <class T1, class T2>
     void t_out(T1 const& name, T2 const& matrix)

@@ -111,6 +111,9 @@ namespace gnut
         virtual void arg(int argc, char *argv[],
                          bool add = false, bool thin = false);
 
+        /** @brief get config xml node. */
+        xml_node config_node() { return _doc.child(XMLKEY_ROOT); }
+
         /** @brief settings help. */
         virtual void help() = 0;
 

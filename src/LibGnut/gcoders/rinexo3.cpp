@@ -475,6 +475,7 @@ namespace gnut
             if (t_rinexo3::_read_obstypes(sat, key) < 0)
             {
                 _complete = 0;
+                cerr << "DEBUG3: _read_obstypes failed at i=" << i << endl;
                 return -1;
             }
         }
