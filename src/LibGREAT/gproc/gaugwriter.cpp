@@ -64,6 +64,15 @@ void t_gaugwriter::setSite(const string& site)
     }
 }
 
+void t_gaugwriter::setPath(const string& path)
+{
+    if (!path.empty())
+    {
+        _path = path;
+        substitute(_path, GFILE_PREFIX, "");
+    }
+}
+
 bool t_gaugwriter::setHeader(const t_gtriple& xyz, const t_gtriple& blh,
                              const string& rcv_type, const string& ant_type, const string& ant_radome,
                              const t_gtime& beg, const t_gtime& end,
@@ -129,9 +138,9 @@ bool t_gaugwriter::_writeHeader()
        << setw(16) << _xyz[0] << " " << setw(16) << _xyz[1] << " " << setw(16) << _xyz[2]
        << "         # ACCURATE POSITION XYZ\n";
 
-    // ACCURATE POSITION BLH (lat/lon 10 decimals, height 4 decimals)
-    os << fixed << setprecision(10) << setw(18) << _blh[0] << " ";
-    os << fixed << setprecision(10) << setw(18) << _blh[1] << " ";
+    // ACCURATE POSITION BLH (lat/lon in degrees, height in m)
+    os << fixed << setprecision(10) << setw(18) << _blh[0] * R2D << " ";
+    os << fixed << setprecision(10) << setw(18) << _blh[1] * R2D << " ";
     os << fixed << setprecision(4)  << setw(16) << _blh[2]
        << "         # ACCURATE POSITION BLH\n";
 
@@ -259,14 +268,15 @@ bool t_gaugwriter::_writeEpochBody(const t_gtime& epoch,
         }
 
         // 3.2 Ionosphere (SION)
-        // Use fixed-solution STEC if this satellite is NL-fixed,
-        // otherwise use float-solution STEC to avoid contamination
-        // from unconverged fixed-solution parameters.
+        // Use fixed-solution STEC if EWL/WL/NL is fixed (X_fix = _param_aug),
+        // otherwise use float-solution STEC.
         int ision = X_fix.getParam(site, par_type::SION, prn);
         if (ision < 0) continue; // no SION parameter
         
         double stec, stec_std;
-        if (fix_NL == 1)
+        // EWL / WL / NL any fixed -> use X_fix (_param_aug, containing constraints)
+        bool is_any_fixed = (fix_NL == 1 || fix_WL == 1 || fix_EWL == 1);
+        if (is_any_fixed)
         {
             stec = X_fix.getPar(ision).value();
             stec_std = sqrt(Q_fix(ision + 1, ision + 1));

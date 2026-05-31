@@ -114,6 +114,9 @@ namespace gnut
         /** @brief get config xml node. */
         xml_node config_node() { return _doc.child(XMLKEY_ROOT); }
 
+        /** @brief get command-line specified observation file (-o). */
+        string obsfile() const { return _obsfile; }
+
         /** @brief settings help. */
         virtual void help() = 0;
 
@@ -230,6 +233,8 @@ namespace gnut
 
         set<string> _set;                     ///< program settings
         map<string, set<string>> _chache_log; ///< The chache of log pointer
+
+        string _obsfile; ///< command-line specified observation file (-o)
 
         mutable t_gmutex _gmutex; ///< For the thread
 

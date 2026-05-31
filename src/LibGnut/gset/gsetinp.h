@@ -30,6 +30,7 @@
 #include "gutils/gtypeconv.h"
 #include "gset/gsetbase.h"
 #include "gutils/gtime.h"
+#include "gutils/gautopath.h"
 
 using namespace std;
 using namespace pugi;
@@ -102,6 +103,28 @@ namespace gnut
         multimap<IFMT, string> inputs_all();
 
         /**
+         * @brief get basepath for auto-discovery
+         * @return string : basepath or empty
+         */
+        string basepath();
+
+        /**
+         * @brief get tbl path for model file fallback
+         * @return string : tbl path or empty
+         */
+        string tbl();
+
+        /**
+         * @brief auto-discover missing input files and add them to XML
+         * @param[in] year 4-digit year
+         * @param[in] doy day of year
+         * @param[in] gpsWeek GPS week
+         * @param[in] dow day of week
+         * @param[in] sites set of site names
+         */
+        void auto_discover(int year, int doy, int gpsWeek, int dow, const set<string> &sites);
+
+        /**
          * @brief get format inputs (ordered)
          * @param[in] fmt file format
          * @return vector<string> : format inputs (ordered)
@@ -123,6 +146,19 @@ namespace gnut
          * @return set<string> : all the ftm in input node
          */
         set<string> _iformats();
+
+        /**
+         * @brief auto-discover missing input files from basepath
+         * @param[in] year 4-digit year
+         * @param[in] doy day of year
+         * @param[in] gpsWeek GPS week
+         * @param[in] dow day of week
+         * @param[in] sites set of site names
+         * @param[in,out] map existing multimap to append to
+         */
+        void _auto_discover(int year, int doy, int gpsWeek, int dow,
+                            const set<string> &sites,
+                            multimap<IFMT, string> &map);
 
     protected:
         set<IFMT> _IFMT_supported; ///< vector of supported IFMTs (app-specific)

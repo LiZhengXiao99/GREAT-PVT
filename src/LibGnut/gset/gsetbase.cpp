@@ -182,6 +182,10 @@ namespace gnut
             {
                 save = argv[++i];
             }
+            else if (!strcmp(argv[i], "-o") && i + 1 < argc)
+            {
+                _obsfile = argv[++i];
+            }
 
             // warning if no other commandline option is supported
             else if (!add)

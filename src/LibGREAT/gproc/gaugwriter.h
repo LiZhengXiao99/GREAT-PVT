@@ -44,6 +44,7 @@ public:
     ~t_gaugwriter();
 
     void setSite(const string& site);
+    void setPath(const string& path);
     bool setHeader(const t_gtriple& xyz, const t_gtriple& blh,
                    const string& rcv_type, const string& ant_type, const string& ant_radome,
                    const t_gtime& beg, const t_gtime& end,

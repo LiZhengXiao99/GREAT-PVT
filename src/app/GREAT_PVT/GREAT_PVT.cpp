@@ -1,5 +1,6 @@
 
 #include "gcfg_ppp.h"
+#include "gutils/gfileconv.h"
 #include <chrono>
 #include <thread>
 
@@ -35,11 +36,62 @@ int main(int argc, char** argv)
     t_grtlog great_log = t_grtlog(log_type, log_level, log_name);
     auto my_logger = great_log.spdlog();
 
+    // Handle command-line observation file (-o): override XML rinexo and rec
+    string obsfile = gset.obsfile();
+    if (!obsfile.empty())
+    {
+        // Extract site name from filename (first 4 chars, uppercased)
+        string fname = gnut::base_name(obsfile);
+        string site = fname.substr(0, min((size_t)4, fname.size()));
+        transform(site.begin(), site.end(), site.begin(), ::toupper);
+
+        xml_node config = gset.config_node();
+
+        auto clear_and_set = [](xml_node parent, const char* name, const char* val)
+        {
+            xml_node node = parent.child(name);
+            if (!node) node = parent.append_child(name);
+            for (xml_node child = node.first_child(); child; )
+            {
+                xml_node next = child.next_sibling();
+                node.remove_child(child);
+                child = next;
+            }
+            node.append_child(pugi::node_pcdata).set_value(val);
+        };
+
+        // Override <inputs><rinexo>
+        xml_node inpNode = config.child("inputs");
+        if (!inpNode) inpNode = config.append_child("inputs");
+        clear_and_set(inpNode, "rinexo", obsfile.c_str());
+
+        // Override <gen><rec>
+        xml_node genNode = config.child("gen");
+        if (!genNode) genNode = config.append_child("gen");
+        clear_and_set(genNode, "rec", site.c_str());
+
+        SPDLOG_LOGGER_INFO(my_logger,
+            "Command-line obs file override: site=" + site + " file=" + obsfile);
+    }
+
     // Check the base station
     bool isBase = dynamic_cast<t_gsetgen*>(&gset)->list_base().size();
 
     // Prepare site list from gset
     set<string> sites = dynamic_cast<t_gsetgen*>(&gset)->recs();
+
+    // Auto-discover missing input files from basepath/tbl
+    t_gtime beg_time = dynamic_cast<t_gsetgen*>(&gset)->beg();
+    t_gsetinp* gsetinp = dynamic_cast<t_gsetinp*>(&gset);
+    if (!gsetinp->basepath().empty() || !gsetinp->tbl().empty())
+    {
+        int year = beg_time.year();
+        int doy = beg_time.doy();
+        // If beg=0 (FIRST_TIME), use 0/0 to trigger broad file discovery
+        if (beg_time == FIRST_TIME) { year = 0; doy = 0; }
+        gsetinp->auto_discover(
+            year, doy, beg_time.gwk(), beg_time.dow(), sites);
+    }
 
     // Prepare input files list from gset
     multimap<IFMT, string> inp = gset.inputs_all();
@@ -184,9 +236,37 @@ int main(int argc, char** argv)
 
         }
     }
+    // Determine actual observation time range when beg/end are set to 0
+    t_gtime actual_beg = dynamic_cast<t_gsetgen*>(&gset)->beg();
+    t_gtime actual_end = dynamic_cast<t_gsetgen*>(&gset)->end();
+    if (actual_beg == FIRST_TIME && gobs)
+    {
+        actual_beg = LAST_TIME;
+        for (const string& s : gobs->stations())
+        {
+            t_gtime t = gobs->beg_obs(s);
+            if (t != FIRST_TIME && t < actual_beg) actual_beg = t;
+        }
+        if (actual_beg == LAST_TIME) actual_beg = FIRST_TIME;
+    }
+    if (actual_end == LAST_TIME && gobs)
+    {
+        actual_end = FIRST_TIME;
+        for (const string& s : gobs->stations())
+        {
+            t_gtime t = gobs->end_obs(s);
+            if (t != LAST_TIME && t > actual_end) actual_end = t;
+        }
+        if (actual_end == FIRST_TIME) actual_end = LAST_TIME;
+    }
+    // Update beg_time for output placeholder substitution
+    if (beg_time == FIRST_TIME && actual_beg != FIRST_TIME)
+    {
+        beg_time = actual_beg;
+    }
+
     // set antennas for satllites (must be before PCV assigning)
-    t_gtime beg = dynamic_cast<t_gsetgen*>(&gset)->beg();
-    gobj->read_satinfo(beg);
+    gobj->read_satinfo(beg_time);
 
     // assigning PCV pointers to objects
     gobj->sync_pcvs();
@@ -211,6 +291,60 @@ int main(int argc, char** argv)
         if (gifcb)data->Add_Data(t_gdata::type2str(gifcb->id_type()), gifcb);
     }
     
+    // If no sites configured (e.g., rec=0), use all stations from observations
+    if (!isBase && sites.empty() && gobs)
+    {
+        sites = gobs->stations();
+    }
+
+    // ============================================
+    // CRITICAL INPUT VALIDATION
+    // Abort early if mandatory data is missing to avoid
+    // segfaults downstream (e.g. null _trs2crs_2000).
+    // ============================================
+    bool critical_missing = false;
+
+    // 1. Observations
+    if (!gobs || gobs->stations().empty())
+    {
+        SPDLOG_LOGGER_CRITICAL(my_logger, "CRITICAL: No observation data loaded! Check rinexo input.");
+        critical_missing = true;
+    }
+
+    // 2. Ephemeris (SP3 / CLK / broadcast)
+    if (!gorb || gorb->satellites().empty())
+    {
+        SPDLOG_LOGGER_CRITICAL(my_logger, "CRITICAL: No ephemeris data loaded! Check sp3 / rinexc / rinexn input.");
+        critical_missing = true;
+    }
+
+    // 3. ERP / PoleUT1 (required by t_gprecisebias::_update_rot_matrix)
+    if (!gerp || gerp->isEmpty())
+    {
+        SPDLOG_LOGGER_CRITICAL(my_logger, "CRITICAL: No ERP/poleut1 data loaded! Check eop / poleut1 input (also in tbl/).");
+        critical_missing = true;
+    }
+
+    // 4. Ocean load (BLQ) – only if explicitly configured
+    if (gset.input_size("blq") > 0 && (!gotl))
+    {
+        SPDLOG_LOGGER_CRITICAL(my_logger, "CRITICAL: BLQ/oceanload configured but not loaded!");
+        critical_missing = true;
+    }
+
+    // 5. ATX – only if explicitly configured
+    if (gset.input_size("atx") > 0 && (!gpcv))
+    {
+        SPDLOG_LOGGER_CRITICAL(my_logger, "CRITICAL: ATX configured but not loaded!");
+        critical_missing = true;
+    }
+
+    if (critical_missing)
+    {
+        SPDLOG_LOGGER_CRITICAL(my_logger, "Missing critical input files. Aborting.");
+        return -1;
+    }
+
     // Record current time
     auto tic_start = system_clock::now();
 
@@ -223,6 +357,30 @@ int main(int argc, char** argv)
     }
     int nsite = sites.size();
     set<string>::iterator it = sites.begin();
+
+    // Prepare context strings for output placeholder substitution
+    string sys_str;
+    if (system.find("GPS") != system.end()) sys_str += "G";
+    if (system.find("GLO") != system.end()) sys_str += "R";
+    if (system.find("GAL") != system.end()) sys_str += "E";
+    if (system.find("BDS") != system.end()) sys_str += "C";
+    if (system.find("QZS") != system.end()) sys_str += "J";
+    if (system.find("SBS") != system.end()) sys_str += "S";
+    if (sys_str.empty()) sys_str = "GREC";
+
+    t_gsetproc* gsetproc = dynamic_cast<t_gsetproc*>(&gset);
+    OBSCOMBIN obs_combin = gsetproc->obs_combin();
+    string mode_str;
+    if (gsetproc->pos_kin()) mode_str = "KIN";
+    else if (gsetproc->crd_est() == CONSTRPAR::FIX) mode_str = "FIX";
+    else mode_str = "EST";
+
+    string iono_str;
+    if (obs_combin == OBSCOMBIN::IONO_FREE)
+        iono_str = "IF";
+    else
+        iono_str = "UC";
+
     while (i < nsite)
     {
         string site_base = "";
@@ -250,6 +408,10 @@ int main(int argc, char** argv)
             continue;
         }
 
+        // Set output context for placeholder substitution
+        dynamic_cast<t_gsetout*>(&gset)->set_context(site, beg_time.year(), beg_time.doy(),
+                                                     mode_str, iono_str, sys_str);
+
         // Add site data
         vgpvt.push_back(0); int idx = vgpvt.size() - 1;
         vgpvt[idx] = new t_gpvtflt(site, site_base, &gset, my_logger, data);
@@ -258,15 +420,13 @@ int main(int argc, char** argv)
             vgpvt[idx]->Add_UPD(gupd);
         }
 
-        t_gtime beg = dynamic_cast<t_gsetgen*>(&gset)->beg();
-        t_gtime end = dynamic_cast<t_gsetgen*>(&gset)->end();
         SPDLOG_LOGGER_INFO(my_logger, "PVT processing started ");
-        SPDLOG_LOGGER_INFO(my_logger, beg.str_ymdhms("  beg: ") + end.str_ymdhms("  end: "));
+        SPDLOG_LOGGER_INFO(my_logger, actual_beg.str_ymdhms("  beg: ") + actual_end.str_ymdhms("  end: "));
 
         runepoch = t_gtime::current_time(t_gtime::GPS);
 
         // The main processing code : processBatch
-        vgpvt[idx]->processBatch(beg, end, true);
+        vgpvt[idx]->processBatch(actual_beg, actual_end, true);
 
         // The time when process ends
         lstepoch = t_gtime::current_time(t_gtime::GPS);

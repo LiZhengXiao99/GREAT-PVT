@@ -102,6 +102,7 @@ namespace gnut
         else
         {
             _gspdlog = spdlog;
+            if (!_spdlog) _spdlog = spdlog;
         }
         _gModel = new t_gsppmodel(_gspdlog, _site, _set);
     }

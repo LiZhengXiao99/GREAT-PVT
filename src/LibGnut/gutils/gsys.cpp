@@ -954,4 +954,5 @@ namespace gnut
 
         return false;
     }
+
 } // namespace

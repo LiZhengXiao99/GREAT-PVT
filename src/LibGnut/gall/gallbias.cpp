@@ -163,10 +163,11 @@ namespace gnut
         for (auto item : _mapBias)
         {
             string ac = (item.first == "WHU_A_PHASE") ? "WHU_A" : item.first;
-            if (ac_order.at(ac) < loc)
+            auto it = ac_order.find(ac);
+            if (it != ac_order.end() && it->second < loc)
             {
                 used_ac = ac;
-                loc = ac_order.at(item.first);
+                loc = it->second;
             }
         }
         return used_ac;
@@ -194,10 +195,11 @@ namespace gnut
             int loc = 999;
             for (const auto &item : _mapBias)
             {
-                if (_acOrder.at(item.first) < loc)
+                auto it = _acOrder.find(item.first);
+                if (it != _acOrder.end() && it->second < loc)
                 {
                     ac = item.first;
-                    loc = _acOrder.at(item.first);
+                    loc = it->second;
                 }
             }
 

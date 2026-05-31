@@ -54,6 +54,7 @@
   <obs_weight>          SINEL           </obs_weight>           <!--> weigh model of obs <!-->
   <basepos>             CFILE           </basepos>              <!--> Base station coordinate acquisition method(CFILE/spp) <!--> 
   <bds_code_bias_corr>  true            </bds_code_bias_corr>   <!--> whether to correct BDS codeBias (true/false) <!-->
+  <bds23_isb>           false           </bds23_isb>            <!--> separate BDS-2 / BDS-3 ISB estimation (true/false) <!-->
   <slip_model>          default         </slip_model>           <!--> cycle slip detect method <!--> 
   <frequency>           2               </frequency>            <!--> frequency number <!-->
  </process>

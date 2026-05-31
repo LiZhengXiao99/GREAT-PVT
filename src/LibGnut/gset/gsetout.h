@@ -109,6 +109,43 @@ namespace gnut
          */
         string outputs(const string &fmt);
 
+        /**
+         * @brief  get string outputs with placeholder substitution
+         * @param[in] fmt file format
+         * @param[in] site station/site name
+         * @param[in] year 4-digit year
+         * @param[in] doy day of year
+         * @param[in] mode_str mode string (e.g. "PPP", "FLT", "AUG")
+         * @param[in] iono_str iono string (e.g. "DF", "FF", "IF")
+         * @param[in] sys_str system string (e.g. "GREC")
+         * @return string : string outputs with placeholders replaced
+         *
+         * Supported placeholders:
+         *   $(MODE)    -> mode_str
+         *   $(IONO)    -> iono_str
+         *   $(SYSTEM)  -> sys_str
+         *   $(REC)     -> site
+         *   $(STATION) -> site
+         *   $(YEAR)    -> 4-digit year
+         *   $(DOY)     -> 3-digit DOY (zero-padded)
+         *   $(EXT)     -> file extension derived from fmt
+         */
+        string outputs(const string &fmt, const string &site,
+                       int year, int doy,
+                       const string &mode_str,
+                       const string &iono_str,
+                       const string &sys_str);
+
+        /**
+         * @brief substitute placeholders in a path string
+         */
+        static string substitute_placeholders(const string &path,
+                                               const string &site,
+                                               int year, int doy,
+                                               const string &mode_str,
+                                               const string &iono_str,
+                                               const string &sys_str);
+
         /*
          * @brief  get string log type
         */
@@ -142,13 +179,60 @@ namespace gnut
          */
         string version(const string &fmt);
 
+        /**
+         * @brief set context for placeholder substitution
+         * @param[in] site station name
+         * @param[in] year 4-digit year
+         * @param[in] doy day of year
+         * @param[in] mode mode string
+         * @param[in] iono iono string
+         * @param[in] sys system string
+         */
+        void set_context(const string &site, int year, int doy,
+                         const string &mode, const string &iono, const string &sys);
+
+        /**
+         * @brief  get whether context has been set
+         * @return bool : true if context has been set
+         */
+        bool ctx_set() const;
+
+        /**
+         * @brief  get context year
+         * @return int : 4-digit year (0 if not set)
+         */
+        int ctx_year() const;
+
+        /**
+         * @brief  get context doy
+         * @return int : day of year (0 if not set)
+         */
+        int ctx_doy() const;
+
     protected:
         /**
          * @brief  get string output file
          * @param[in] fmt file format
-         * @return string : string output file
+         * @return string : string output file ("AUTO" for auto-generated path)
          */
         string _outputs(const string &fmt);
+
+        /**
+         * @brief  generate default output path for auto mode
+         * @param[in] fmt file format
+         * @param[in] site station name
+         * @param[in] year 4-digit year
+         * @param[in] doy day of year
+         * @param[in] mode_str mode string
+         * @param[in] iono_str iono string
+         * @param[in] sys_str system string
+         * @return string : auto-generated output path
+         */
+        string _default_output_path(const string &fmt, const string &site,
+                                    int year, int doy,
+                                    const string &mode_str,
+                                    const string &iono_str,
+                                    const string &sys_str);
 
         /**
          * @brief  get all string output file
@@ -159,6 +243,15 @@ namespace gnut
         set<OFMT> _OFMT_supported; ///< vector of supported OFMTs (app-specific)
         bool _append;              ///< append mode
         int _verb;                 ///< output verbosity
+
+        // context for placeholder substitution
+        string _ctx_site;          ///< station name
+        int _ctx_year;             ///< 4-digit year
+        int _ctx_doy;              ///< day of year
+        string _ctx_mode;          ///< mode string
+        string _ctx_iono;          ///< iono string
+        string _ctx_sys;           ///< system string
+        bool _ctx_set;             ///< whether context has been set
 
     private:
     };

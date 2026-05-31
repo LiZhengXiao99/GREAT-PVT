@@ -267,7 +267,8 @@ namespace great
         UPD_MODE _upd_mode = UPD_MODE::UPD;///< upd mode
         t_map_MW _MW, _EWL, _LW, _LE, _LWL, _rMW, _rEWL, _IMW, _IEWL, _PW, _AFIF;///< t_map
         bool _amb_state;                   ///< ambiguity state
-        t_gallpar _param_fixed;            ///< param fixed
+        t_gallpar _param_fixed;            ///< param fixed (strict NL-fixed solution)
+        t_gallpar _param_aug;              ///< best available state for AUG extraction
         t_gtriple _vel;                    ///< vel
         SymmetricMatrix _Qx_vel;           ///< Qx_vel
         map<string, double> _crt_ele;      ///< crt vel

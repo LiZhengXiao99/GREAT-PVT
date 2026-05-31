@@ -1,6 +1,10 @@
 #Minimum requirement of CMake version : 3.0.0
 cmake_minimum_required(VERSION 3.0.0)
 
+# Override CMake's default Release flags (-O3) before project() sets them
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG" CACHE STRING "Release C++ flags" FORCE)
+set(CMAKE_C_FLAGS_RELEASE "-O3 -DNDEBUG" CACHE STRING "Release C flags" FORCE)
+
 #Project name and version number
 project(GREAT-PVT VERSION 0.1.0)
 

@@ -69,6 +69,22 @@ namespace gnut
             return tmp;
         }
 
+        // Parse optional 0/1 control prefix
+        istringstream iss(str);
+        string first;
+        iss >> first;
+        if (first == "0")
+        {
+            _gmutex.unlock();
+            t_gtime tmp(FIRST_TIME);
+            return tmp;
+        }
+        else if (first == "1")
+        {
+            getline(iss, str);
+            // Do NOT str_erase here — it removes internal spaces needed by the datetime format
+        }
+
         gt.from_str("%Y-%m-%d %H:%M:%S", trim(str), conv);
         _gmutex.unlock();
         return gt;
@@ -91,6 +107,22 @@ namespace gnut
             return tmp;
         }
 
+        // Parse optional 0/1 control prefix
+        istringstream iss(str);
+        string first;
+        iss >> first;
+        if (first == "0")
+        {
+            _gmutex.unlock();
+            t_gtime tmp(LAST_TIME);
+            return tmp;
+        }
+        else if (first == "1")
+        {
+            getline(iss, str);
+            // Do NOT str_erase here — it removes internal spaces needed by the datetime format
+        }
+
         gt.from_str("%Y-%m-%d %H:%M:%S", trim(str), conv);
         _gmutex.unlock();
         return gt;
@@ -101,6 +133,21 @@ namespace gnut
         _gmutex.lock();
 
         string str = _doc.child(XMLKEY_ROOT).child(XMLKEY_GEN).child_value("int");
+
+        // Parse optional 0/1 control prefix
+        istringstream iss(str);
+        string first;
+        iss >> first;
+        if (first == "0")
+        {
+            _gmutex.unlock();
+            return DEF_SAMPLING;
+        }
+        else if (first == "1")
+        {
+            getline(iss, str);
+            // Do NOT str_erase here — it removes internal spaces needed by the datetime format
+        }
 
         // delete spaces
         str.erase(remove(str.begin(), str.end(), ' '), str.end());
@@ -170,19 +217,91 @@ namespace gnut
     set<string> t_gsetgen::recs()
     {
         _gmutex.lock();
-        set<string> tmp = t_gsetbase::_setvals(XMLKEY_GEN, "rec");
+
+        string temp;
+        auto xml_node = _doc.child(XMLKEY_ROOT).child(XMLKEY_GEN).children("rec");
+        for (auto rec_node = xml_node.begin(); rec_node != xml_node.end(); rec_node++)
+        {
+            temp += rec_node->child_value();
+        }
+
+        istringstream iss(temp);
+        string first;
+        iss >> first;
+        if (first == "0")
+        {
+            _gmutex.unlock();
+            return set<string>();
+        }
+
+        set<string> vals;
+        string word;
+        if (first == "1")
+        {
+            while (iss >> word)
+            {
+                transform(word.begin(), word.end(), word.begin(), ::toupper);
+                vals.insert(word);
+            }
+        }
+        else
+        {
+            // Old format without control prefix
+            istringstream is(temp);
+            while (is >> word)
+            {
+                transform(word.begin(), word.end(), word.begin(), ::toupper);
+                vals.insert(word);
+            }
+        }
+
         _gmutex.unlock();
-        return tmp;
+        return vals;
     }
 
     set<string> t_gsetgen::rec_all()
     {
         _gmutex.lock();
 
-        set<string> tmp = t_gsetbase::_setvals(XMLKEY_GEN, "rec");
+        string temp;
+        auto xml_node = _doc.child(XMLKEY_ROOT).child(XMLKEY_GEN).children("rec");
+        for (auto rec_node = xml_node.begin(); rec_node != xml_node.end(); rec_node++)
+        {
+            temp += rec_node->child_value();
+        }
+
+        istringstream iss(temp);
+        string first;
+        iss >> first;
+        if (first == "0")
+        {
+            _gmutex.unlock();
+            return set<string>();
+        }
+
+        set<string> vals;
+        string word;
+        if (first == "1")
+        {
+            while (iss >> word)
+            {
+                transform(word.begin(), word.end(), word.begin(), ::toupper);
+                vals.insert(word);
+            }
+        }
+        else
+        {
+            // Old format without control prefix
+            istringstream is(temp);
+            while (is >> word)
+            {
+                transform(word.begin(), word.end(), word.begin(), ::toupper);
+                vals.insert(word);
+            }
+        }
 
         _gmutex.unlock();
-        return tmp;
+        return vals;
     }
 
     vector<string> t_gsetgen::list_base()

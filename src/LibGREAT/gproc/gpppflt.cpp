@@ -240,41 +240,77 @@ namespace gnut
 
     void t_gpppflt::_setOut()
     {
+        // Extract substitution parameters from settings
+        t_gsetout *gsetout = dynamic_cast<t_gsetout *>(_set);
+        t_gsetgen *gsetgen = dynamic_cast<t_gsetgen *>(_set);
+        t_gsetproc *gsetproc = dynamic_cast<t_gsetproc *>(_set);
+        
+        int year = 0, doy = 0;
+        string sys_str, iono_str, mode_str;
+        if (gsetgen)
+        {
+            t_gtime beg = gsetgen->beg();
+            if (beg == FIRST_TIME)
+            {
+                // Fallback to output context set by main program (e.g. from actual obs data)
+                if (gsetout && gsetout->ctx_set())
+                {
+                    year = gsetout->ctx_year();
+                    doy = gsetout->ctx_doy();
+                }
+                else
+                {
+                    year = 0;
+                    doy = 0;
+                }
+            }
+            else { year = beg.year(); doy = beg.doy(); }
+            set<string> sys = gsetgen->sys();
+            if (sys.find("GPS") != sys.end()) sys_str += "G";
+            if (sys.find("GLO") != sys.end()) sys_str += "R";
+            if (sys.find("GAL") != sys.end()) sys_str += "E";
+            if (sys.find("BDS") != sys.end()) sys_str += "C";
+        }
+        if (gsetproc)
+        {
+            if (gsetproc->pos_kin()) mode_str = "KIN";
+            else if (gsetproc->crd_est() == CONSTRPAR::FIX) mode_str = "FIX";
+            else mode_str = "EST";
+            if (_observ == OBSCOMBIN::IONO_FREE) iono_str = "IF";
+            else iono_str = "UC";
+        }
+
         string tmp;
-        tmp = dynamic_cast<t_gsetout *>(_set)->outputs("flt");
+        tmp = gsetout->outputs("flt", _site, year, doy, mode_str, iono_str, sys_str);
         if (!tmp.empty() && !_read)
         {
-            substitute(tmp, "$(rec)", _site, false);
             _flt = new t_giof;
             _flt->tsys(t_gtime::GPS);
             _flt->mask(tmp);
-            _flt->append(dynamic_cast<t_gsetout *>(_set)->append());
+            _flt->append(gsetout->append());
         }
 
-        tmp = dynamic_cast<t_gsetout *>(_set)->outputs("flt_float");
+        tmp = gsetout->outputs("flt_float", _site, year, doy, mode_str, iono_str, sys_str);
         if (!tmp.empty() && !_read)
         {
-            substitute(tmp, "$(rec)", _site, false);
             _flt_float = new t_giof;
             _flt_float->tsys(t_gtime::GPS);
             _flt_float->mask(tmp);
-            _flt_float->append(dynamic_cast<t_gsetout *>(_set)->append());
+            _flt_float->append(gsetout->append());
         }
 
-        tmp = dynamic_cast<t_gsetout *>(_set)->outputs("flt_ppprtk");
+        tmp = gsetout->outputs("flt_ppprtk", _site, year, doy, mode_str, iono_str, sys_str);
         if (!tmp.empty() && !_read)
         {
-            substitute(tmp, "$(rec)", _site, false);
             _flt_ppprtk = new t_giof;
             _flt_ppprtk->tsys(t_gtime::GPS);
             _flt_ppprtk->mask(tmp);
-            _flt_ppprtk->append(dynamic_cast<t_gsetout *>(_set)->append());
+            _flt_ppprtk->append(gsetout->append());
         }
 
-        tmp = dynamic_cast<t_gsetout *>(_set)->outputs("kml");
+        tmp = gsetout->outputs("kml", _site, year, doy, mode_str, iono_str, sys_str);
         if (!tmp.empty() && !_read)
         {
-            substitute(tmp, "$(rec)", _site, false);
             _kml_name = tmp;
             _kml = true;
 

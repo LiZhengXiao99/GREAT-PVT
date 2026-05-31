@@ -1642,6 +1642,7 @@ int great::t_gpvtflt::_amb_resolution()
     ColumnVector dx_tmp = _filter->dx();
     SymmetricMatrix Qx_tmp = _filter->Qx();
     _param_fixed = _filter->param();
+    _param_aug = _filter->param();
     _amb_state = false;
 
     // Backup float solution for standard float output and PPP-RTK
@@ -1786,6 +1787,18 @@ int great::t_gpvtflt::_amb_resolution()
         }
         _prtOut(_epoch, _param_fixed, Qx_tmp, _data, os, line, true);
         _prt_port(_epoch, _param_fixed, Qx_tmp, _data);
+    }
+
+    // Update _param_aug: sync to _filter posterior, reflecting all EWL/WL/NL constraints
+    // applied so far. This ensures AUG extraction uses the best available state.
+    {
+        t_gallpar param_post = _filter->param();
+        ColumnVector dx_post = _filter->dx();
+        for (int i = 0; i < param_post.parNumber(); i++)
+        {
+            param_post[i].value(param_post[i].value() + dx_post(param_post[i].index));
+        }
+        _param_aug = param_post;
     }
 
     _extractAugCorrections();
@@ -2086,7 +2099,7 @@ void great::t_gpvtflt::_extractAugCorrections()
 
     // Set header if not yet written
     t_gtriple xyz_fix, blh_fix;
-    _param_fixed.getCrdParam(_site, xyz_fix);
+    _param_aug.getCrdParam(_site, xyz_fix);
     xyz2ell(xyz_fix, blh_fix, false);
 
     string rcv_type = _site;
@@ -2104,8 +2117,8 @@ void great::t_gpvtflt::_extractAugCorrections()
     }
 
     // Pass per-satellite ambiguity fix states.
-    // For fixed satellites use fixed-solution STEC; for unfixed use float-solution.
-    t_gambiguity* amb_for_aug = _amb_state ? _ambfix : nullptr;
+    // Always pass _ambfix so that EWL/WL fixed states are recorded even when NL is unfixed.
+    t_gambiguity* amb_for_aug = _ambfix;
 
     // Build posterior float parameters (apriori + dx) for AUG output,
     // so that unfixed satellites get the correct float STEC.
@@ -2116,7 +2129,7 @@ void great::t_gpvtflt::_extractAugCorrections()
         param_float_post[i].value(param_float_post[i].value() + dx_flt(param_float_post[i].index));
     }
 
-    _aug_writer->writeEpoch(_epoch, _param_fixed, param_float_post, _filter->Qx(), _data,
+    _aug_writer->writeEpoch(_epoch, _param_aug, param_float_post, _filter->Qx(), _data,
                             _crt_ele, amb_for_aug, _lock_epo_num, _el_max_deg, _site);
 }
 

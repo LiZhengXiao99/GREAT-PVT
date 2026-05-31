@@ -1,0 +1,63 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "GREAT_PVT",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build_Linux/Bin/GREAT_PVT",
+            "args": [
+                "-x", "${workspaceFolder}/data/GA_2023070/xml/GREAT_PPPFLT_kinematic_DF_Fixed_PPPRTK.xml"
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "为 gdb 启用整齐打印",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "将反汇编风格设置为 Intel",
+                    "text": "-gdb-set disassembly-flavor intel",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "run_greatpvt_parallel",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/script/run_greatpvt_parallel.py",
+            "console": "integratedTerminal",
+            "args": [  
+                        "${workspaceFolder}/data/GA_2023070/xml/GREAT_PPPFLT_static_DF_Fixed_AUG_svr.xml",
+                        "${workspaceFolder}/data/GA_2023070/svr_30_obs",
+                        "-j", "10"
+                    ],
+        },
+        {
+            "name": "plot_pos_error",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/script/plot_pos_error.py",
+            "console": "integratedTerminal",
+            "args": [  
+                        "${workspaceFolder}/data/GA_2023070/result_KIN_UC_GE",
+                        "--ylim", "0.1", "0.3"
+                    ],
+        },
+        {
+            "name": "GTest_analysis_cvg_cst",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/script/GTest_analysis_cvg_cst.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [],
+        },
+    ]
+}

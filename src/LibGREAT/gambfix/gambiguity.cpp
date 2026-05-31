@@ -2277,11 +2277,54 @@ namespace great
     void t_gambiguity::_initRatiofile()
     {
         //output ratio   file
-        string ratio_path = dynamic_cast<t_gsetout *>(_gset)->outputs("ratio"); //xjhan
+        t_gsetout *gsetout = dynamic_cast<t_gsetout *>(_gset);
+        t_gsetgen *gsetgen = dynamic_cast<t_gsetgen *>(_gset);
+        t_gsetproc *gsetproc = dynamic_cast<t_gsetproc *>(_gset);
+        
+        int year = 0, doy = 0;
+        string sys_str, iono_str;
+        if (gsetgen)
+        {
+            t_gtime beg = gsetgen->beg();
+            if (beg == FIRST_TIME)
+            {
+                if (gsetout && gsetout->ctx_set())
+                {
+                    year = gsetout->ctx_year();
+                    doy = gsetout->ctx_doy();
+                }
+            }
+            else
+            {
+                year = beg.year();
+                doy = beg.doy();
+            }
+            set<string> sys = gsetgen->sys();
+            if (sys.find("GPS") != sys.end()) sys_str += "G";
+            if (sys.find("GLO") != sys.end()) sys_str += "R";
+            if (sys.find("GAL") != sys.end()) sys_str += "E";
+            if (sys.find("BDS") != sys.end()) sys_str += "C";
+        }
+        if (gsetproc)
+        {
+            OBSCOMBIN oc = gsetproc->obs_combin();
+            if (oc == OBSCOMBIN::IONO_FREE) iono_str = "IF";
+            else iono_str = "UC";
+        }
+
+        // Compute actual mode_str to match flt output directory
+        string mode_str = "EST";
+        if (gsetproc)
+        {
+            if (gsetproc->pos_kin()) mode_str = "KIN";
+            else if (gsetproc->crd_est() == CONSTRPAR::FIX) mode_str = "FIX";
+        }
+
+        string ratio_path = gsetout->outputs("ratio", _site, year, doy, mode_str, iono_str, sys_str);
         if (ratio_path.empty())
         {
             // 基于 <flt> 路径自动推导输出目录
-            string flt_path = dynamic_cast<t_gsetout *>(_gset)->outputs("flt");
+            string flt_path = gsetout->outputs("flt", _site, year, doy, mode_str, iono_str, sys_str);
             if (!flt_path.empty())
             {
                 string flt_dir = gnut::dir_name(flt_path);
@@ -2295,8 +2338,6 @@ namespace great
                 ratio_path = "ratio-" + _site;
             }
         }
-
-        substitute(ratio_path, "$(rec)", _site, false);
 
         _ratiofile = new t_giof;
         _ratiofile->tsys(t_gtime::GPS);
@@ -2314,11 +2355,54 @@ namespace great
     void t_gambiguity::_initBootfile()
     {
         //output boot   file
-        string bootfile = dynamic_cast<t_gsetout *>(_gset)->outputs("boot");
+        t_gsetout *gsetout = dynamic_cast<t_gsetout *>(_gset);
+        t_gsetgen *gsetgen = dynamic_cast<t_gsetgen *>(_gset);
+        t_gsetproc *gsetproc = dynamic_cast<t_gsetproc *>(_gset);
+        
+        int year = 0, doy = 0;
+        string sys_str, iono_str;
+        if (gsetgen)
+        {
+            t_gtime beg = gsetgen->beg();
+            if (beg == FIRST_TIME)
+            {
+                if (gsetout && gsetout->ctx_set())
+                {
+                    year = gsetout->ctx_year();
+                    doy = gsetout->ctx_doy();
+                }
+            }
+            else
+            {
+                year = beg.year();
+                doy = beg.doy();
+            }
+            set<string> sys = gsetgen->sys();
+            if (sys.find("GPS") != sys.end()) sys_str += "G";
+            if (sys.find("GLO") != sys.end()) sys_str += "R";
+            if (sys.find("GAL") != sys.end()) sys_str += "E";
+            if (sys.find("BDS") != sys.end()) sys_str += "C";
+        }
+        if (gsetproc)
+        {
+            OBSCOMBIN oc = gsetproc->obs_combin();
+            if (oc == OBSCOMBIN::IONO_FREE) iono_str = "IF";
+            else iono_str = "UC";
+        }
+
+        // Compute actual mode_str to match flt output directory
+        string mode_str = "EST";
+        if (gsetproc)
+        {
+            if (gsetproc->pos_kin()) mode_str = "KIN";
+            else if (gsetproc->crd_est() == CONSTRPAR::FIX) mode_str = "FIX";
+        }
+
+        string bootfile = gsetout->outputs("boot", _site, year, doy, mode_str, iono_str, sys_str);
         if (bootfile.empty())
         {
             // 基于 <flt> 路径自动推导输出目录
-            string flt_path = dynamic_cast<t_gsetout *>(_gset)->outputs("flt");
+            string flt_path = gsetout->outputs("flt", _site, year, doy, mode_str, iono_str, sys_str);
             if (!flt_path.empty())
             {
                 string flt_dir = gnut::dir_name(flt_path);

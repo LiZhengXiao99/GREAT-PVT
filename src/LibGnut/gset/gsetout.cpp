@@ -76,7 +76,10 @@ namespace gnut
     t_gsetout::t_gsetout()
         : t_gsetbase(),
           _append(false),
-          _verb(0)
+          _verb(0),
+          _ctx_year(0),
+          _ctx_doy(0),
+          _ctx_set(false)
     {
         _set.insert(XMLKEY_OUT);
     }
@@ -120,9 +123,100 @@ namespace gnut
         _gmutex.lock();
 
         string tmp = _outputs(fmt);
+        if (tmp == "AUTO")
+        {
+            if (_ctx_set)
+            {
+                string mode_str = _ctx_mode.empty() ? ofmt2str(str2ofmt(fmt)) : _ctx_mode;
+                tmp = _default_output_path(fmt, _ctx_site, _ctx_year, _ctx_doy,
+                                           mode_str, _ctx_iono, _ctx_sys);
+            }
+            else
+            {
+                tmp = "";
+            }
+        }
 
         _gmutex.unlock();
         return tmp;
+    }
+
+    string t_gsetout::outputs(const string &fmt, const string &site,
+                              int year, int doy,
+                              const string &mode_str,
+                              const string &iono_str,
+                              const string &sys_str)
+    {
+        _gmutex.lock();
+
+        string tmp = _outputs(fmt);
+        if (tmp == "AUTO")
+        {
+            tmp = _default_output_path(fmt, site, year, doy, mode_str, iono_str, sys_str);
+        }
+        else if (!tmp.empty())
+        {
+            tmp = substitute_placeholders(tmp, site, year, doy, mode_str, iono_str, sys_str);
+        }
+
+        _gmutex.unlock();
+        return tmp;
+    }
+
+    string t_gsetout::substitute_placeholders(const string &path,
+                                              const string &site,
+                                              int year, int doy,
+                                              const string &mode_str,
+                                              const string &iono_str,
+                                              const string &sys_str)
+    {
+        string result = path;
+        if (result.empty()) return result;
+
+        // strip file:// prefix if present, substitute, then re-add
+        bool hasPrefix = false;
+        if (result.find(GFILE_PREFIX) == 0)
+        {
+            hasPrefix = true;
+            result = result.substr(strlen(GFILE_PREFIX));
+        }
+
+        // Helper to replace all occurrences
+        auto replaceAll = [](string &s, const string &from, const string &to)
+        {
+            size_t pos = 0;
+            while ((pos = s.find(from, pos)) != string::npos)
+            {
+                s.replace(pos, from.length(), to);
+                pos += to.length();
+            }
+        };
+
+        replaceAll(result, "$(MODE)",    mode_str);
+        replaceAll(result, "$(mode)",    mode_str);
+        replaceAll(result, "$(IONO)",    iono_str);
+        replaceAll(result, "$(iono)",    iono_str);
+        replaceAll(result, "$(SYSTEM)",  sys_str);
+        replaceAll(result, "$(system)",  sys_str);
+        replaceAll(result, "$(REC)",     site);
+        replaceAll(result, "$(rec)",     site);
+        replaceAll(result, "$(STATION)", site);
+        replaceAll(result, "$(station)", site);
+        replaceAll(result, "$(YEAR)",    int2str(year, 4));
+        replaceAll(result, "$(year)",    int2str(year, 4));
+        replaceAll(result, "$(DOY)",     int2str(doy, 3));
+        replaceAll(result, "$(doy)",     int2str(doy, 3));
+
+        // Extension placeholder: derive from path or from known format
+        string ext;
+        size_t dot = result.find_last_of('.');
+        if (dot != string::npos) ext = result.substr(dot + 1);
+        replaceAll(result, "$(EXT)", ext);
+
+        if (hasPrefix)
+            result = string(GFILE_PREFIX) + result;
+
+        return result;
     }
 
     string t_gsetout::log_type()
@@ -250,6 +344,35 @@ namespace gnut
         return tmp;
     }
 
+    void t_gsetout::set_context(const string &site, int year, int doy,
+                                const string &mode, const string &iono, const string &sys)
+    {
+        _gmutex.lock();
+        _ctx_site = site;
+        _ctx_year = year;
+        _ctx_doy = doy;
+        _ctx_mode = mode;
+        _ctx_iono = iono;
+        _ctx_sys = sys;
+        _ctx_set = true;
+        _gmutex.unlock();
+    }
+
+    bool t_gsetout::ctx_set() const
+    {
+        return _ctx_set;
+    }
+
+    int t_gsetout::ctx_year() const
+    {
+        return _ctx_year;
+    }
+
+    int t_gsetout::ctx_doy() const
+    {
+        return _ctx_doy;
+    }
+
     string t_gsetout::_outputs(const string &fmt)
     {
         string str;
@@ -257,16 +380,98 @@ namespace gnut
         {
             if (node.name() == fmt)
             {
-                istringstream is(node.child_value());
-                while (is >> str && !is.fail())
+                string val = node.child_value();
+                // Trim leading/trailing whitespace only
+                size_t start = val.find_first_not_of(" \t\n\r");
+                if (start == string::npos) return "";
+                size_t end = val.find_last_not_of(" \t\n\r");
+                string trimmed = val.substr(start, end - start + 1);
+
+                istringstream is(trimmed);
+                string first;
+                is >> first;
+                if (first == "0")
                 {
-                    if (str.find("://") == string::npos)
-                        str = GFILE_PREFIX + str;
-                    return str;
+                    return "AUTO";
+                }
+                else if (first == "1")
+                {
+                    if (is >> str && !is.fail())
+                    {
+                        if (str.find("://") == string::npos)
+                            str = GFILE_PREFIX + str;
+                        if (_ctx_set)
+                        {
+                            string mode_str = ofmt2str(str2ofmt(fmt));
+                            str = substitute_placeholders(str, _ctx_site, _ctx_year, _ctx_doy,
+                                                          mode_str, _ctx_iono, _ctx_sys);
+                        }
+                        return str;
+                    }
+                    return "";
+                }
+                else
+                {
+                    // Old format: remove all whitespace
+                    str_erase(val);
+                    if (val.empty()) return "";
+                    istringstream is_old(val);
+                    while (is_old >> str && !is_old.fail())
+                    {
+                        if (str.find("://") == string::npos)
+                            str = GFILE_PREFIX + str;
+                        if (_ctx_set)
+                        {
+                            string mode_str = ofmt2str(str2ofmt(fmt));
+                            str = substitute_placeholders(str, _ctx_site, _ctx_year, _ctx_doy,
+                                                          mode_str, _ctx_iono, _ctx_sys);
+                        }
+                        return str;
+                    }
                 }
             }
         }
         return "";
+    }
+
+    string t_gsetout::_default_output_path(const string &fmt, const string &site,
+                                           int year, int doy,
+                                           const string &mode_str,
+                                           const string &iono_str,
+                                           const string &sys_str)
+    {
+        string basepath;
+        {
+            string tmp = _doc.child(XMLKEY_ROOT).child("inputs").child_value("basepath");
+            str_erase(tmp);
+            basepath = tmp;
+        }
+        if (basepath.empty()) basepath = ".";
+
+        string ext;
+        if (fmt == "flt" || fmt == "flt_float" || fmt == "flt_ppprtk") ext = "flt";
+        else if (fmt == "kml") ext = "kml";
+        else if (fmt == "aug") ext = "aug";
+        else if (fmt == "ppp") ext = "log";
+        else ext = "txt";
+
+        string suffix;
+        if (fmt == "flt") suffix = "_pppar";
+        else if (fmt == "flt_float") suffix = "_float";
+        else if (fmt == "flt_ppprtk") suffix = "_ppprtk";
+
+        ostringstream oss;
+        oss << basepath << "/result_" << mode_str << "_" << iono_str << "_" << sys_str << "/";
+        if (year > 0 && doy > 0)
+            oss << site << setfill('0') << setw(4) << year << setw(3) << doy;
+        else
+            oss << site << "0000000";
+        oss << suffix << "." << ext;
+
+        string result = oss.str();
+        if (result.find("://") == string::npos)
+            result = GFILE_PREFIX + result;
+        return result;
     }
 
     void t_gsetout::check()

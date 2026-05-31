@@ -143,7 +143,7 @@
         <fix_mode>          SEARCH      </fix_mode>                                 <!--> ambiguity fixed mode (NO/SEARCH) <!-->
         <upd_mode>          UPD         </upd_mode>                                 <!--> upd mode <!-->                                              
         <part_fix>          YES         </part_fix>                                 <!--> part_fix (YES/NO) <!-->  
-        <part_fix_num>      4           </part_fix_num>                             <!--> threshold in partial ambiguity fixing <!-->
+        <part_fix_num>      15           </part_fix_num>                             <!--> threshold in partial ambiguity fixing <!-->
         <ratio>             2.0         </ratio>                                    <!--> threshold in LAMBDA method <!-->       
         <set_refsat>        YES         </set_refsat>                               <!--> set_refsat (YES/NO) <!-->
         <min_common_time>   1           </min_common_time>                          <!--> minimum common time/seconds <!-->                     

@@ -20,6 +20,7 @@ Ondrejov 244, 251 65, Czech Republic
 #include "gset/gsetinp.h"
 #include "gutils/gfileconv.h"
 #include "gutils/gmutex.h"
+#include "gutils/gautopath.h"
 using namespace std;
 using namespace pugi;
 
@@ -152,10 +153,10 @@ namespace gnut
         while (itFMT != ifmt.end())
         {
             string fmt = *itFMT;
-            if (fmt.empty())
+            if (fmt.empty() || fmt == "basepath" || fmt == "tbl")
             {
                 itFMT++;
-                continue; 
+                continue;
             }
 
             IFMT ifmt = str2ifmt(fmt);
@@ -170,6 +171,204 @@ namespace gnut
         }
         _gmutex.unlock();
         return map;
+    }
+
+    string t_gsetinp::basepath()
+    {
+        _gmutex.lock();
+        string tmp = _doc.child(XMLKEY_ROOT).child(XMLKEY_INP).child_value("basepath");
+        str_erase(tmp);
+        _gmutex.unlock();
+        return tmp;
+    }
+
+    string t_gsetinp::tbl()
+    {
+        _gmutex.lock();
+        string tmp = _doc.child(XMLKEY_ROOT).child(XMLKEY_INP).child_value("tbl");
+        str_erase(tmp);
+        _gmutex.unlock();
+        return tmp;
+    }
+
+    void t_gsetinp::auto_discover(int year, int doy, int gpsWeek, int dow,
+                                  const set<string> &sites)
+    {
+        _gmutex.lock();
+
+        string bp = basepath();
+        string tblPath = tbl();
+        if (bp.empty() && tblPath.empty())
+        {
+            _gmutex.unlock();
+            return;
+        }
+
+        xml_node inpNode = _doc.child(XMLKEY_ROOT).child(XMLKEY_INP);
+
+        // Helper: check if a child node exists and has non-empty text content
+        auto has_content = [&](const string &name) -> bool
+        {
+            for (xml_node n = inpNode.first_child(); n; n = n.next_sibling())
+            {
+                if (string(n.name()) == name)
+                {
+                    string val = n.child_value();
+                    str_erase(val);
+                    if (val == "0") return false; // auto-discovery marker, treat as empty
+                    return !val.empty();
+                }
+            }
+            return false;
+        };
+
+        // Helper: add discovered path as a new child node
+        auto add_to_xml = [&](const string &name, const string &path)
+        {
+            if (path.empty()) return;
+            string p = path;
+            if (p.find("://") == string::npos)
+                p = GFILE_PREFIX + p;
+            xml_node n = inpNode.append_child(name.c_str());
+            n.append_child(node_pcdata).set_value(p.c_str());
+        };
+
+        // RINEXO: find obs for each site (or all obs if no site restriction)
+        if (!has_content("rinexo"))
+        {
+            if (!sites.empty())
+            {
+                for (const string &site : sites)
+                {
+                    string path = gnut::findObsFile(bp, site, year, doy);
+                    if (path.empty() && !tblPath.empty()) path = gnut::findObsFile(tblPath, site, year, doy);
+                    add_to_xml("rinexo", path);
+                }
+            }
+            else
+            {
+                // No site restriction (e.g., rec=0): discover all obs files
+                vector<string> paths = gnut::findObsFiles(bp, "", year, doy);
+                if (paths.empty() && !tblPath.empty()) paths = gnut::findObsFiles(tblPath, "", year, doy);
+                for (const string &p : paths) add_to_xml("rinexo", p);
+            }
+        }
+
+        // RINEXN
+        if (!has_content("rinexn"))
+        {
+            string path = gnut::findEphFile(bp, year, doy);
+            if (path.empty() && !tblPath.empty()) path = gnut::findEphFile(tblPath, year, doy);
+            add_to_xml("rinexn", path);
+        }
+
+        // SP3
+        if (!has_content("sp3"))
+        {
+            string path = gnut::findSp3File(bp, year, doy, gpsWeek, dow);
+            if (path.empty() && !tblPath.empty()) path = gnut::findSp3File(tblPath, year, doy, gpsWeek, dow);
+            add_to_xml("sp3", path);
+        }
+
+        // RINEXC (CLK)
+        if (!has_content("rinexc"))
+        {
+            string path = gnut::findClkFile(bp, year, doy, gpsWeek, dow);
+            if (path.empty() && !tblPath.empty()) path = gnut::findClkFile(tblPath, year, doy, gpsWeek, dow);
+            add_to_xml("rinexc", path);
+        }
+
+        // EOP/ERP
+        if (!has_content("eop"))
+        {
+            string path = gnut::findErpFile(bp, year, doy);
+            if (path.empty() && !tblPath.empty()) path = gnut::findErpFile(tblPath, year, doy);
+            add_to_xml("eop", path);
+        }
+
+        // BIAS / BIASINEX
+        if (!has_content("bias") && !has_content("biasinex"))
+        {
+            vector<string> paths = gnut::findBiasFiles(bp, year, doy);
+            if (paths.empty() && !tblPath.empty()) paths = gnut::findBiasFiles(tblPath, year, doy);
+            for (const string &p : paths)
+            {
+                string fname = gnut::base_name(p);
+                size_t dot = fname.rfind('.');
+                if (dot != string::npos)
+                {
+                    string ext = fname.substr(dot);
+                    transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+                    // .bsx files are Bias-SINEX (Bernese) format and should be parsed
+                    // by t_biabernese (BIAS_INP), not t_biasinex (BIASINEX_INP).
+                    // t_biabernese correctly sets the _A/_R suffix for _ac, which is
+                    // required by gallbias AC priority lookup.
+                    add_to_xml("bias", p);
+                }
+                else
+                {
+                    add_to_xml("bias", p);
+                }
+            }
+        }
+
+        // IFCB (optional, only auto-discover if frequency >= 3 and GPS is used)
+        // Skip auto-discovery for IFCB to avoid compatibility issues with 2-frequency setups
+        // if (!has_content("ifcb"))
+        // {
+        //     string path = gnut::findSGGIfcb(bp, year, doy);
+        //     if (path.empty() && !tblPath.empty()) path = gnut::findSGGIfcb(tblPath, year, doy);
+        //     add_to_xml("ifcb", path);
+        // }
+
+        // UPD: search common types and all systems
+        if (!has_content("upd"))
+        {
+            vector<string> upd_types = {"ewl", "wl", "nl"};
+            for (const string &t : upd_types)
+            {
+                vector<string> paths = gnut::findUPDFiles(bp, year, doy, t);
+                if (paths.empty() && !tblPath.empty()) paths = gnut::findUPDFiles(tblPath, year, doy, t);
+                for (const string &p : paths)
+                {
+                    add_to_xml("upd", p);
+                }
+            }
+        }
+
+        // ATX
+        if (!has_content("atx"))
+        {
+            string path = gnut::findATXFile(bp);
+            if (path.empty() && !tblPath.empty()) path = gnut::findATXFile(tblPath);
+            add_to_xml("atx", path);
+        }
+
+        // BLQ
+        if (!has_content("blq"))
+        {
+            string path = gnut::findBLQFile(bp);
+            if (path.empty() && !tblPath.empty()) path = gnut::findBLQFile(tblPath);
+            add_to_xml("blq", path);
+        }
+
+        // DE
+        if (!has_content("de"))
+        {
+            string path = gnut::findDEFile(bp);
+            if (path.empty() && !tblPath.empty()) path = gnut::findDEFile(tblPath);
+            add_to_xml("de", path);
+        }
+
+        // LEAPSECOND
+        if (!has_content("leapsecond"))
+        {
+            string path = gnut::findLeapFile(bp);
+            if (path.empty() && !tblPath.empty()) path = gnut::findLeapFile(tblPath);
+            add_to_xml("leapsecond", path);
+        }
+
+        _gmutex.unlock();
     }
 
     vector<string> t_gsetinp::inputs(const string &fmt)
@@ -193,19 +392,51 @@ namespace gnut
         {
             if (node.name() == fmt)
             {
-                istringstream is(node.child_value());
-                while (is >> str && !is.fail())
+                string val = node.child_value();
+                size_t s = val.find_first_not_of(" \t\n\r");
+                if (s == string::npos) continue;
+                size_t e = val.find_last_not_of(" \t\n\r");
+                string trimmed = val.substr(s, e - s + 1);
+
+                istringstream is(trimmed);
+                if (is >> str && !is.fail())
                 {
-                    if (str.find("://") == string::npos)
-                        str = GFILE_PREFIX + str;
-                    if (list.find(str) == list.end())
+                    if (str == "0") continue; // auto-discovery marker, skip
+                    if (str == "1")
                     {
-                        tmp.push_back(str);
-                        list.insert(str);
+                        // Use remaining tokens as explicit paths
+                        while (is >> str && !is.fail())
+                        {
+                            if (str.find("://") == string::npos)
+                                str = GFILE_PREFIX + str;
+                            if (list.find(str) == list.end())
+                            {
+                                tmp.push_back(str);
+                                list.insert(str);
+                            }
+                            else
+                            {
+                                cout << "READ : " + str + " multiple request ignored" << endl;
+                            }
+                        }
+                        continue;
                     }
-                    else
+                    // Old format: process full content with str_erase
+                    // str_erase(val);  // BUG: removes ALL whitespace, merging multiple paths into one
+                    istringstream is_old(trimmed);  // Use trimmed (whitespace-trimmed only) to preserve internal spaces as token separators
+                    while (is_old >> str && !is_old.fail())
                     {
-                        cout << "READ : " + str + " multiple request ignored" << endl;
+                        if (str.find("://") == string::npos)
+                            str = GFILE_PREFIX + str;
+                        if (list.find(str) == list.end())
+                        {
+                            tmp.push_back(str);
+                            list.insert(str);
+                        }
+                        else
+                        {
+                            cout << "READ : " + str + " multiple request ignored" << endl;
+                        }
                     }
                 }
             }
@@ -227,19 +458,50 @@ namespace gnut
                 continue;
             if (ifmt == fmt)
             {
-                istringstream is(node.child_value());
-                while (is >> str && !is.fail())
+                string val = node.child_value();
+                size_t s = val.find_first_not_of(" \t\n\r");
+                if (s == string::npos) continue;
+                size_t e = val.find_last_not_of(" \t\n\r");
+                string trimmed = val.substr(s, e - s + 1);
+
+                istringstream is(trimmed);
+                if (is >> str && !is.fail())
                 {
-                    if (str.find("://") == string::npos)
-                        str = GFILE_PREFIX + str;
-                    if (list.find(str) == list.end())
+                    if (str == "0") continue;
+                    if (str == "1")
                     {
-                        tmp.push_back(str);
-                        list.insert(str);
+                        while (is >> str && !is.fail())
+                        {
+                            if (str.find("://") == string::npos)
+                                str = GFILE_PREFIX + str;
+                            if (list.find(str) == list.end())
+                            {
+                                tmp.push_back(str);
+                                list.insert(str);
+                            }
+                            else
+                            {
+                                cout << "READ : " + str + " multiple request ignored" << endl;
+                            }
+                        }
+                        continue;
                     }
-                    else
+                    // Old format
+                    str_erase(val);
+                    istringstream is_old(val);
+                    while (is_old >> str && !is_old.fail())
                     {
-                        cout << "READ : " + str + " multiple request ignored" << endl;
+                        if (str.find("://") == string::npos)
+                            str = GFILE_PREFIX + str;
+                        if (list.find(str) == list.end())
+                        {
+                            tmp.push_back(str);
+                            list.insert(str);
+                        }
+                        else
+                        {
+                            cout << "READ : " + str + " multiple request ignored" << endl;
+                        }
                     }
                 }
             }
@@ -271,12 +533,22 @@ namespace gnut
         while (itFMT != ifmt.end())
         {
             string fmt = *itFMT;
+            if (fmt == "basepath" || fmt == "tbl")
+            {
+                itFMT++;
+                continue;
+            }
             try
             {
                 str2ifmt(fmt);
             }
             catch (const std::exception &e)
             {
+                if (fmt == "basepath" || fmt == "tbl")
+                {
+                    itFMT++;
+                    continue;
+                }
                 _doc.child(XMLKEY_ROOT).child(XMLKEY_INP).remove_child(node.child(fmt.c_str()));
                 itFMT++;
                 continue;
@@ -287,7 +559,9 @@ namespace gnut
                 _doc.child(XMLKEY_ROOT).child(XMLKEY_INP).remove_child(node.child(fmt.c_str()));
                 spdlog::warn(fmt + " inp format not supported by this application!");
             }
-            check_input(fmt, "your fmt : " + fmt + " is empty");
+            // Skip empty check for basepath itself; check only real input formats
+            if (fmt != "basepath")
+                check_input(fmt, "your fmt : " + fmt + " is empty");
             itFMT++;
         }
 
@@ -306,14 +580,19 @@ namespace gnut
         _gmutex.lock();
 
         cerr << " <inputs>\n"
+             << "   <basepath> file://dir/name </basepath> \t\t <!-- base directory for auto-discovery -->\n"
+             << "   <tbl> file://dir/name </tbl> \t\t <!-- fallback directory for model files -->\n"
              << "   <rinexo> file://dir/name </rinexo> \t\t <!-- obs RINEX decoder -->\n"
              << "   <rinexn> file://dir/name </rinexn> \t\t <!-- nav RINEX decoder -->\n"
              << " </inputs>\n";
 
         cerr << "\t<!-- inputs description:\n"
+             << "\t <basepath> dir </basepath>           <!-- base directory for auto file discovery -->\n"
+             << "\t <tbl> dir </tbl>                     <!-- fallback directory for model/table files -->\n"
              << "\t <decoder> path1 path2 path3  </decoder>\n"
              << "\t ... \n"
              << "\t where path(i) contains [file,tcp,ntrip]:// depending on the application\n"
+             << "\t empty or missing tags trigger auto-discovery when basepath/tbl is set\n"
              << "\t -->\n\n";
 
         _gmutex.unlock();
