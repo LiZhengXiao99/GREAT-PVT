@@ -185,34 +185,7 @@ bool t_gppprtk::buildConstraints(const t_gtime& epoch,
 string t_gppprtk::_selectRefSat(const AugEpoch& aug, const vector<t_gsatdata>& data,
                                      char sys, const map<string, int>& lock_epo)
 {
-    // 1. Try to keep last epoch's reference sat for stability
-    auto it_last = _last_ref.find(sys);
-    if (it_last != _last_ref.end()) {
-        const string& last_ref = it_last->second;
-        // Check if last ref is still available in current rover data and AUG
-        bool in_data = false;
-        bool in_aug = false;
-        double last_el = 0.0;
-        for (const auto& sat : data) {
-            if (sat.sat() == last_ref) {
-                in_data = true;
-                last_el = sat.ele_deg();
-                break;
-            }
-        }
-        for (const auto& a : aug.sats) {
-            if (a.prn == last_ref) {
-                in_aug = true;
-                break;
-            }
-        }
-        // Keep last ref if still tracked and elevation >= 15 deg (reasonable threshold)
-        if (in_data && in_aug && last_el >= 15.0) {
-            return last_ref;
-        }
-    }
-
-    // 2. Select new reference sat by max(lck * el)
+    // Select reference sat by max(lck * el) every epoch (no persistence)
     double max_lck_el = 0.0;
     string ref;
 

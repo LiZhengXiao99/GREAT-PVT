@@ -59,6 +59,13 @@ namespace great
         UPD    ///< wl upd + nl upd.
     };
 
+    /** @brief enum of HOLD mode. */
+    enum class HOLD_MODE
+    {
+        NONE,       ///< 默认，每历元独立判定
+        CONTINUOUS, ///< 固定后持续保持
+    };
+
     /**
     * @brief        class for set ambiguity fixed xml
     */
@@ -160,13 +167,32 @@ namespace great
         */
         int full_fix_num();
 
+        /**
+        * @brief  get hold mode .
+        * @return    HOLD_MODE    hold mode
+        */
+        HOLD_MODE hold_mode();
+
+        /**
+        * @brief  get fix elevation threshold for initial fix.
+        * @return    double    fix elevation [deg]
+        */
+        double fix_ele();
+
+        /**
+        * @brief change string to HOLD_MODE.
+        * @param[in]  str   hold mode in string form
+        * @return    HOLD_MODE    hold mode
+        */
+        HOLD_MODE str2holdmode(string str);
+        string holdmode2str(HOLD_MODE mode);
+
     protected:
         map<string, map<string, double>> _default_decision = {
             {"EWL", {{"maxdev", 0.07}, {"maxsig", 0.10}, {"alpha", 1000}}},
             {"WL", {{"maxdev", 0.25}, {"maxsig", 0.10}, {"alpha", 1000}}},
             {"NL", {{"maxdev", 0.25}, {"maxsig", 0.10}, {"alpha", 1000}}}}; ///< default ambiguity decision
 
-    private:
     };
 
 }

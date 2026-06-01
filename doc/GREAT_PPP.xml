@@ -152,4 +152,4 @@
         <narrowlane_decision maxdev = "0.35" maxsig = "0.12" alpha = "1000" />      <!--> narrowlane setting, option: alpha&maxdev(Confidence interval parameter), maxsig(maximum sigma) <!-->
     </ambiguity>
 
-</config>
+</config> 

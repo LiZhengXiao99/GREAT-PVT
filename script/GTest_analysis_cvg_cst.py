@@ -1627,7 +1627,7 @@ if __name__ == "__main__":
     # lst_dir = [dir_00,dir_01,dir_02,dir_03,dir_04,dir_05]
     # lst_md = ['sd','rdcb_single','rdcb_iter','rdcb_single_sigma01','rdcb_single_sigma03','rdcb_single_sigma005']
     lst_dir = [dir_00, dir_01,dir_02]
-    lst_md = ['ion', 'ion_trp', 'ion_trp_Bootstrapping_ar']
+    lst_md = ['ion', 'ion_trp', 'ion_trp_test']
     opt.dirres = dirdst
 
     first_conv_period = False

@@ -19,6 +19,8 @@ using namespace std;
 namespace great
 {
     t_gambiguity::t_gambiguity()
+        : _hold_mode(HOLD_MODE::NONE),
+          _fix_ele(15.0)
     {
         _pdE = nullptr;
         _pdC = nullptr;
@@ -41,7 +43,9 @@ namespace great
           _amb_fixed(false),
           _obstype(OBSCOMBIN::IONO_FREE),
           _upd_mode(UPD_MODE::UPD),
-          _fix_mode(FIX_MODE::SEARCH)
+          _fix_mode(FIX_MODE::SEARCH),
+          _hold_mode(HOLD_MODE::NONE),
+          _fix_ele(15.0)
     {
         _site = site;
         _gset = gset;
@@ -59,6 +63,8 @@ namespace great
 
         _fix_mode = dynamic_cast<t_gsetamb *>(_gset)->fix_mode();
         _upd_mode = dynamic_cast<t_gsetamb *>(_gset)->upd_mode();
+        _hold_mode = dynamic_cast<t_gsetamb *>(_gset)->hold_mode();
+        _fix_ele = dynamic_cast<t_gsetamb *>(_gset)->fix_ele();
 
         _part_fix = dynamic_cast<t_gsetamb *>(_gset)->part_ambfix();
         _part_fix_num = dynamic_cast<t_gsetamb *>(_gset)->part_ambfix_num();
@@ -132,6 +138,9 @@ namespace great
                 it.second = 0;
         }
         _sats_index.clear();
+        if (abs(t.diff(_crt_time)) > _interval + 0.01) {
+            _lock_epo_num_prev = _lock_epo_num;
+        }
         _lock_epo_num.clear();
 
         vector<int> fixed_amb;
@@ -240,6 +249,26 @@ namespace great
         }
         _DD_save = _DD;
 
+        // Save float ambiguity history for multi-epoch stability check
+        if (_hold_mode == HOLD_MODE::CONTINUOUS) {
+            for (const auto& itdd : _DD) {
+                string sat1 = get<0>(itdd.ddSats[0]);
+                string sat2 = get<0>(itdd.ddSats[1]);
+                string site = itdd.site;
+                double val = 0.0;
+                if (mode == "WL") val = itdd.rwl;
+                else if (mode == "EWL") val = itdd.rewl;
+                else if (mode == "EWL24") val = itdd.rewl24;
+                else if (mode == "EWL25") val = itdd.rewl25;
+                else if (mode == "NL") val = itdd.rnl;
+                if (val != 0.0) {
+                    auto& hist = _amb_history[mode][sat1][sat2][site];
+                    hist.push_back(val);
+                    while ((int)hist.size() > HOLD_HISTORY_LEN) hist.pop_front();
+                }
+            }
+        }
+
         // select usable amb.
         int ndef = _selectAmb(koder, namb);
         if (ndef < 0)
@@ -288,6 +317,11 @@ namespace great
                 _IEWL24[get<0>(it_dd->ddSats[0])][get<0>(it_dd->ddSats[1])] = it_dd->iewl24;
             if (mode == "EWL25")
                 _IEWL25[get<0>(it_dd->ddSats[0])][get<0>(it_dd->ddSats[1])] = it_dd->iewl25;
+
+            // Save fixed NL integer value for CONTINUOUS mode
+            if (mode == "NL" && it_dd->isNlFixed) {
+                _INL_saved[get<0>(it_dd->ddSats[0])][get<0>(it_dd->ddSats[1])][it_dd->site] = it_dd->inl;
+            }
         }
 
         t_gflt fltpreAMB(*gflt);
@@ -352,6 +386,9 @@ namespace great
         _IEWL25.clear();
         _WL_flag.clear();
         _IWL.clear();
+        _NL_flag.clear();
+        _INL_saved.clear();
+        _amb_history.clear();
     }
 
     void t_gambiguity::updateFixParam(t_gallpar &param, ColumnVector &dx, ColumnVector *stdx)
@@ -1351,13 +1388,28 @@ namespace great
             sat1 = get<0>(itdd->ddSats[0]);
             sat2 = get<0>(itdd->ddSats[1]);
 
-            // Reset fix flags before re-evaluating for current epoch
-            itdd->isNlFixed = false;
-
             itdd->isEwlFixed = _EWL_flag[sat1][sat2][itdd->site];
             itdd->isEwl24Fixed = _EWL24_flag[sat1][sat2];
             itdd->isEwl25Fixed = _EWL25_flag[sat1][sat2];
             itdd->isWlFixed = _WL_flag[sat1][sat2][itdd->site];
+
+            // CONTINUOUS 模式：WL 未固定则 NL 不能固定
+            if (_hold_mode == HOLD_MODE::CONTINUOUS && !itdd->isWlFixed) {
+                itdd->isNlFixed = false;
+                _NL_flag[sat1][sat2][itdd->site] = false;
+                _amb_history["NL"][sat1][sat2][itdd->site].clear();
+                continue;
+            }
+
+            bool was_nl_fixed = _NL_flag[sat1][sat2][itdd->site];
+            bool can_hold_nl = _hold_mode == HOLD_MODE::CONTINUOUS
+                               && was_nl_fixed
+                               && _checkHoldCondition(sat1, sat2, itdd->site, "NL", itdd->rnl);
+
+            if (!can_hold_nl) {
+                itdd->isNlFixed = false;
+                _amb_history["NL"][sat1][sat2][itdd->site].clear();
+            }
 
             if (_amb_freqs[sat1][itdd->site].size() == 1 || _amb_freqs[sat2][itdd->site].size() == 1)
                 itdd->isSngleFreq = true;
@@ -1380,6 +1432,7 @@ namespace great
             if (abs(itdd->rnl - round(itdd->rnl)) < _map_NL_decision["maxdev"])
             {
                 itdd->isNlFixed = true;
+                _NL_flag[sat1][sat2][itdd->site] = true;
             }
 
             if (_fix_epo_num["NL"][sat1] > 20 && _fix_epo_num["NL"][sat2] > 20 && _lock_epo_num[sat1] > 200 && _lock_epo_num[sat2] > 200)
@@ -1387,6 +1440,22 @@ namespace great
                 if (abs(itdd->rnl - round(itdd->rnl)) < _map_NL_decision["maxdev"] * 1.1)
                 {
                     itdd->isNlFixed = true;
+                    _NL_flag[sat1][sat2][itdd->site] = true;
+                }
+            }
+
+            if (can_hold_nl) {
+                itdd->isNlFixed = true;
+                _NL_flag[sat1][sat2][itdd->site] = true;
+                auto it1 = _INL_saved.find(sat1);
+                if (it1 != _INL_saved.end()) {
+                    auto it2 = it1->second.find(sat2);
+                    if (it2 != it1->second.end()) {
+                        auto it3 = it2->second.find(itdd->site);
+                        if (it3 != it2->second.end()) {
+                            itdd->inl = it3->second;
+                        }
+                    }
                 }
             }
         }
@@ -1442,7 +1511,17 @@ namespace great
             {
                 if (itdd->rwl == 0)
                     continue;
-                _WL_flag[sat1][sat2][itdd->site] = false;
+
+                bool was_fixed = _WL_flag[sat1][sat2][itdd->site];
+                bool can_hold = _hold_mode == HOLD_MODE::CONTINUOUS
+                                && was_fixed
+                                && _checkHoldCondition(sat1, sat2, itdd->site, mode, itdd->rwl);
+
+                if (!can_hold) {
+                    _WL_flag[sat1][sat2][itdd->site] = false;
+                    _amb_history[mode][sat1][sat2][itdd->site].clear();
+                }
+
                 if (double_eq(itdd->srwl, 0.0))
                     itdd->srwl = 0.05;
                 if (abs(itdd->rwl - round(itdd->rwl)) < _map_WL_decision["maxdev"])
@@ -1460,12 +1539,28 @@ namespace great
                         itdd->iwl = round(itdd->rwl);
                     }
                 }
+
+                if (can_hold) {
+                    itdd->isWlFixed = true;
+                    _WL_flag[sat1][sat2][itdd->site] = true;
+                    itdd->iwl = _IWL[sat1][sat2][itdd->site];
+                }
             }
             else if (mode == "EWL")
             {
                 if (itdd->rewl == 0)
                     continue;
-                _EWL_flag[sat1][sat2][itdd->site] = false;
+
+                bool was_fixed = _EWL_flag[sat1][sat2][itdd->site];
+                bool can_hold = _hold_mode == HOLD_MODE::CONTINUOUS
+                                && was_fixed
+                                && _checkHoldCondition(sat1, sat2, itdd->site, mode, itdd->rewl);
+
+                if (!can_hold) {
+                    _EWL_flag[sat1][sat2][itdd->site] = false;
+                    _amb_history[mode][sat1][sat2][itdd->site].clear();
+                }
+
                 if (double_eq(itdd->srewl, 0.0))
                     itdd->srewl = 0.05;
                 if (abs(itdd->rewl - round(itdd->rewl)) < _map_EWL_decision["maxdev"])
@@ -1484,12 +1579,28 @@ namespace great
                         itdd->iewl = round(itdd->rewl);
                     }
                 }
+
+                if (can_hold) {
+                    itdd->isEwlFixed = true;
+                    _EWL_flag[sat1][sat2][itdd->site] = true;
+                    itdd->iewl = _IEWL[sat1][sat2][itdd->site];
+                }
             }
             else if (mode == "EWL24")
             {
                 if (itdd->rewl24 == 0)
                     continue;
-                _EWL24_flag[sat1][sat2] = false;
+
+                bool was_fixed = _EWL24_flag[sat1][sat2];
+                bool can_hold = _hold_mode == HOLD_MODE::CONTINUOUS
+                                && was_fixed
+                                && _checkHoldCondition(sat1, sat2, itdd->site, mode, itdd->rewl24);
+
+                if (!can_hold) {
+                    _EWL24_flag[sat1][sat2] = false;
+                    _amb_history[mode][sat1][sat2][itdd->site].clear();
+                }
+
                 if (double_eq(itdd->srewl24, 0.0))
                     itdd->srewl24 = 0.05;
                 if (abs(itdd->rewl24 - round(itdd->rewl24)) < _map_EWL_decision["maxdev"])
@@ -1498,13 +1609,29 @@ namespace great
                     _EWL24_flag[sat1][sat2] = true;
                     itdd->iewl24 = round(itdd->rewl24);
                 }
+
+                if (can_hold) {
+                    itdd->isEwl24Fixed = true;
+                    _EWL24_flag[sat1][sat2] = true;
+                    itdd->iewl24 = _IEWL24[sat1][sat2];
+                }
             }
 
             else if (mode == "EWL25")
             {
                 if (itdd->rewl25 == 0)
                     continue;
-                _EWL25_flag[sat1][sat2] = false;
+
+                bool was_fixed = _EWL25_flag[sat1][sat2];
+                bool can_hold = _hold_mode == HOLD_MODE::CONTINUOUS
+                                && was_fixed
+                                && _checkHoldCondition(sat1, sat2, itdd->site, mode, itdd->rewl25);
+
+                if (!can_hold) {
+                    _EWL25_flag[sat1][sat2] = false;
+                    _amb_history[mode][sat1][sat2][itdd->site].clear();
+                }
+
                 if (double_eq(itdd->srewl25, 0.0))
                     itdd->srewl25 = 0.05;
                 if (abs(itdd->rewl25 - round(itdd->rewl25)) < _map_EWL_decision["maxdev"])
@@ -1513,8 +1640,115 @@ namespace great
                     _EWL25_flag[sat1][sat2] = true;
                     itdd->iewl25 = round(itdd->rewl25);
                 }
+
+                if (can_hold) {
+                    itdd->isEwl25Fixed = true;
+                    _EWL25_flag[sat1][sat2] = true;
+                    itdd->iewl25 = _IEWL25[sat1][sat2];
+                }
             }
         }
+        return true;
+    }
+
+    bool t_gambiguity::_checkHoldCondition(const string& sat1, const string& sat2,
+                                           const string& site, const string& mode,
+                                           double cur_val)
+    {
+        // 1. Elevation check (use hold_ele, can be lower than fix_ele)
+        if (_ELE.find(sat1) == _ELE.end() || _ELE.find(sat2) == _ELE.end())
+            return false;
+        if (_ELE.at(sat1) < HOLD_ELE_DEG || _ELE.at(sat2) < HOLD_ELE_DEG)
+            return false;
+
+        // 2. Cycle slip detection: current lock_epo_num < previous -> reset happened
+        if (_lock_epo_num_prev.find(sat1) != _lock_epo_num_prev.end()) {
+            if (_lock_epo_num[sat1] < _lock_epo_num_prev[sat1])
+                return false;
+        }
+        if (_lock_epo_num_prev.find(sat2) != _lock_epo_num_prev.end()) {
+            if (_lock_epo_num[sat2] < _lock_epo_num_prev[sat2])
+                return false;
+        }
+
+        // 3. Minimum lock epoch check
+        string lock_mode = mode;
+        if (lock_mode == "EWL24" || lock_mode == "EWL25") lock_mode = "EWL";
+        int min_lock = 0;
+        if (lock_mode == "EWL") min_lock = MIN_LOCK_EWL;
+        else if (lock_mode == "WL") min_lock = MIN_LOCK_WL;
+        else if (lock_mode == "NL") min_lock = MIN_LOCK_NL;
+        if (_lock_epo_num[sat1] < min_lock || _lock_epo_num[sat2] < min_lock)
+            return false;
+
+        // 4. Multi-epoch stability check (CalAmbVari_MultiEpoch style)
+        //    GKit thresholds: maxvari=0.5 (WL/EWL/NL), maxdif_all=0.75 (WL) / 0.5 (EWL/NL)
+        auto& hist = _amb_history[lock_mode][sat1][sat2][site];
+        int n_ep = (int)hist.size();
+        if (n_ep >= HOLD_HISTORY_LEN) {
+            // Compute mean
+            double mean = 0.0;
+            for (double v : hist) mean += v;
+            mean /= n_ep;
+
+            // Add current value to compute variance with n_ep+1 samples
+            double mean_all = (mean * n_ep + cur_val) / (n_ep + 1);
+
+            // Variance (population variance)
+            double vari = 0.0;
+            for (double v : hist) vari += (v - mean_all) * (v - mean_all);
+            vari += (cur_val - mean_all) * (cur_val - mean_all);
+            vari /= (n_ep + 1);
+
+            // maxdif = max deviation from mean among all stored epochs
+            double maxdif = 0.0;
+            for (double v : hist) {
+                double d = abs(v - mean);
+                if (d > maxdif) maxdif = d;
+            }
+
+            // maxdif_all = max deviation from mean among all epochs including current
+            double maxdif_all = maxdif;
+            double d_cur = abs(cur_val - mean_all);
+            if (d_cur > maxdif_all) maxdif_all = d_cur;
+
+            // GKit default thresholds (matching GKit_uducppp-master)
+            double maxvari = 0.5;
+            double maxdif_thr = 0.5;   // EWL/NL default
+            if (lock_mode == "WL") {
+                maxdif_thr = 0.75;
+            }
+
+            // Allow XML-configured overrides
+            if (lock_mode == "WL") {
+                maxvari = MAX_VARI_WL;
+                maxdif_thr = MAX_DIF_WL;
+            } else if (lock_mode == "EWL") {
+                maxvari = MAX_VARI_WL;
+                maxdif_thr = MAX_DIF_EWL;
+            } else if (lock_mode == "NL") {
+                maxvari = MAX_VARI_NL;
+                maxdif_thr = MAX_DIF_NL;
+            }
+
+            // Low-elevation scaling for NL (GKit: el<20 deg, scale=el/20)
+            if (lock_mode == "NL") {
+                double el1 = _ELE.at(sat1);
+                double el2 = _ELE.at(sat2);
+                double min_el = (el1 < el2) ? el1 : el2;
+                if (min_el < 20.0) {
+                    double scale = min_el / 20.0;
+                    // Avoid zero scale at very low elevation
+                    if (scale < 0.1) scale = 0.1;
+                    maxvari *= scale;
+                    maxdif_thr *= scale;
+                }
+            }
+
+            if (vari > maxvari || maxdif_all > maxdif_thr)
+                return false;
+        }
+
         return true;
     }
 

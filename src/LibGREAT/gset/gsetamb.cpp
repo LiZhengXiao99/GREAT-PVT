@@ -40,9 +40,11 @@ namespace great
         cerr << "<ambiguity>\n"
              << "<upd_mode> upd </upd_mode>\n"
              << "<fix_mode> SEARCH/NO </fix_mode>\n"
+             << "<hold_mode> NONE/CONTINUOUS </hold_mode>\n"
              << "<ratio> 3.0 </ratio>\n"
              << "<all_baselines> NO </all_baselines>\n"
              << "<min_common_time> 30 </min_common_time>\n"
+             << "<fix_ele> 15.0 </fix_ele>\n"
              << "<widelane_decision     maxdev = \"0.15\" maxsig = \"0.10\" alpha = \"1000\"/>\n"
              << "<narrowlane_decision   maxdev = \"0.15\" maxsig = \"0.10\" alpha = \"1000\"/>\n";
 
@@ -204,6 +206,47 @@ namespace great
             spdlog::warn("warning: not defined upd mode[" + str + "]");
             return UPD_MODE::UPD;
         }
+    }
+
+    HOLD_MODE t_gsetamb::hold_mode()
+    {
+        _gmutex.lock();
+        string tmp = _doc.child(XMLKEY_ROOT).child(XMLKEY_AMBIGUITY).child_value("hold_mode");
+        _gmutex.unlock();
+        return str2holdmode(trim(tmp));
+    }
+
+    double t_gsetamb::fix_ele()
+    {
+        _gmutex.lock();
+        string tmp = _doc.child(XMLKEY_ROOT).child(XMLKEY_AMBIGUITY).child_value("fix_ele");
+        _gmutex.unlock();
+        if (tmp.empty()) return 15.0;
+        return str2dbl(tmp);
+    }
+
+    HOLD_MODE t_gsetamb::str2holdmode(string str)
+    {
+        if (str == "CONTINUOUS" || str == "continuous")
+        {
+            return HOLD_MODE::CONTINUOUS;
+        }
+        else
+        {
+            return HOLD_MODE::NONE;  // 默认 NONE
+        }
+    }
+
+    string t_gsetamb::holdmode2str(HOLD_MODE mode)
+    {
+        switch (mode)
+        {
+        case HOLD_MODE::NONE:
+            return "NONE";
+        case HOLD_MODE::CONTINUOUS:
+            return "CONTINUOUS";
+        }
+        return "NONE";
     }
 
     bool t_gsetamb::isSetRefSat()

@@ -11,6 +11,18 @@
 #ifndef GAMBIGUITY_H
 #define GAMBIGUITY_H
 
+// Hard-coded hold mode thresholds (matching GKit)
+#define HOLD_ELE_DEG        15.0   ///< min elevation for hold mode [deg]
+#define MIN_LOCK_EWL        10     ///< min lock epoch for EWL
+#define MIN_LOCK_WL         20     ///< min lock epoch for WL
+#define MIN_LOCK_NL         50     ///< min lock epoch for NL
+#define MAX_VARI_WL         0.50   ///< max variance for WL/EWL stability check [cycle^2]
+#define MAX_VARI_NL         0.50   ///< max variance for NL stability check [cycle^2]
+#define MAX_DIF_WL          0.75   ///< max difference for WL stability check [cycle]
+#define MAX_DIF_EWL         0.50   ///< max difference for EWL stability check [cycle]
+#define MAX_DIF_NL          0.50   ///< max difference for NL stability check [cycle]
+#define HOLD_HISTORY_LEN    5      ///< history length for multi-epoch stability check [epoch]
+
 #include "gexport/ExportLibGREAT.h"
 #include <string>
 #include <map>
@@ -284,17 +296,22 @@ namespace great
         map<string, map<string, map<string,int>>> _IEWL;           ///< Fixed DD EWL ambiguity
         map<string, map<string, int>> _IEWL24;                     ///< Fixed DD EWL24 ambiguity
         map<string, map<string, int>> _IEWL25;                     ///< Fixed DD EWL25 ambiguity
+        map<string, map<string, map<string,bool>>> _NL_flag;       ///< DD NL flag: true or false
+        map<string, map<string, map<string,int>>> _INL_saved;      ///< Saved DD NL integer value
         t_gupd *_gupd;                                             ///< upd data
         t_gsetbase *_gset;                                         ///< set from xml
         t_spdlog _spdlog;                                          ///< spdlog file
 
         FIX_MODE _fix_mode;                    ///< set ambiguity fixing mode
         UPD_MODE _upd_mode;                    ///< set wl and nl upd mode
+        HOLD_MODE _hold_mode;                  ///< set hold mode (NONE/CONTINUOUS)
         bool _part_fix;                        ///< set whether take partial ambiguity fixed mode, default is false
         int _part_fix_num;                     ///< if value's size less than num, stop part fix
         double _ratio;                         ///< threshold in LAMBDA method
         double _boot;                          ///< threshold of bootstrapping rate in amb fix
         double _min_common_time;               ///< the Minimum common time of two observation arc
+        double _fix_ele;                       ///< min elevation for initial fix [deg]
+        map<string, map<string, map<string, map<string, deque<double>>>>> _amb_history; ///< float ambiguity history: mode->sat1->sat2->site->deque of float values
         map<string, double> _map_EWL_decision; ///< deriation, sigma in WL/NL-cycle
         map<string, double> _map_WL_decision;  ///< deriation, sigma in WL/NL-cycle
         map<string, double> _map_NL_decision;
@@ -329,6 +346,7 @@ namespace great
         map<string, map<string, t_gtime>> _last_fix_time;         ///< mode sat time
         map<string, map<string, int>> _fix_epo_num;               ///< fix epoch number
         map<string, int> _lock_epo_num;                           ///< satellite counts until cycle slip
+        map<string, int> _lock_epo_num_prev;                      ///< previous epoch lock_epo_num for cycle slip detection
         map<string, t_DD_amb> _DD_previous;                       ///< DD previous
         map<string, map<string, int>> _sats_index;                ///< sats index
         int _ctrl_last_fixepo_gap = 999999;                       ///< ctrl last fixepoch gap
@@ -389,6 +407,18 @@ namespace great
         bool _fixAmbUDUC();
         bool _fixAmbWL();
         bool _fixAmbWL(string mode);
+
+        /**
+        * @brief check if hold condition is satisfied in CONTINUOUS mode
+        * @param[in] sat1   satellite 1
+        * @param[in] sat2   satellite 2
+        * @param[in] site   station name
+        * @param[in] mode   EWL/WL/NL
+        * @return     true - can hold, false - should release
+        */
+        bool _checkHoldCondition(const string& sat1, const string& sat2,
+                                 const string& site, const string& mode,
+                                 double cur_val);
 
         /**
         * @brief select from (or reorder) a set of DD-ambiguities with their widelane and narrowlane ambiguities.

@@ -34,8 +34,8 @@
             "program": "${workspaceFolder}/script/run_greatpvt_parallel.py",
             "console": "integratedTerminal",
             "args": [  
-                        "${workspaceFolder}/data/GA_2023070/xml/GREAT_PPPFLT_static_DF_Fixed_AUG_svr.xml",
-                        "${workspaceFolder}/data/GA_2023070/svr_30_obs",
+                        "${workspaceFolder}/data/GA_2023070/xml/GREAT_PPPFLT_kinematic_DF_Fixed_PPPRTK.xml",
+                        "${workspaceFolder}/data/GA_2023070/usr_20_obs",
                         "-j", "10"
                     ],
         },
