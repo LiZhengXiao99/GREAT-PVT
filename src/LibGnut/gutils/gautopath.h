@@ -41,6 +41,7 @@ namespace gnut
     LibGnut_LIBRARY_EXPORT vector<string> findBLQFiles(const string& basepath);
     LibGnut_LIBRARY_EXPORT vector<string> findDEFiles(const string& basepath);
     LibGnut_LIBRARY_EXPORT vector<string> findLeapFiles(const string& basepath);
+    LibGnut_LIBRARY_EXPORT vector<string> findTrueCrdFiles(const string& basepath);
 
     // ------------------------------------------------------------------
     // Convenience wrappers returning the first match (empty if none)
@@ -126,6 +127,12 @@ namespace gnut
     inline string findLeapFile(const string& basepath)
     {
         vector<string> v = findLeapFiles(basepath);
+        return v.empty() ? "" : v[0];
+    }
+
+    inline string findTrueCrdFile(const string& basepath)
+    {
+        vector<string> v = findTrueCrdFiles(basepath);
         return v.empty() ? "" : v[0];
     }
 

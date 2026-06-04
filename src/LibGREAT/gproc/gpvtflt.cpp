@@ -4594,4 +4594,3 @@ void great::t_gpvtflt::_posterioriTest(const Matrix& A, const SymmetricMatrix& P
     vtpv = vtPv(1);
     return;
 }
-

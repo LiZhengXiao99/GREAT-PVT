@@ -774,4 +774,21 @@ namespace gnut
         return _findAllMatches(basepath, patterns);
     }
 
+    // ------------------------------------------------------------------
+    // Find true_crd files
+    // ------------------------------------------------------------------
+    vector<string> findTrueCrdFiles(const string &basepath)
+    {
+        if (basepath.empty())
+            return {};
+
+        vector<string> patterns = {
+            "true_crd.true_crd",
+            "*.true_crd",
+            "*.TRUE_CRD",
+        };
+
+        return _findAllMatches(basepath, patterns);
+    }
+
 } // namespace

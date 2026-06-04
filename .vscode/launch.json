@@ -7,7 +7,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/build_Linux/Bin/GREAT_PVT",
             "args": [
-                "-x", "${workspaceFolder}/data/GA_2023070/xml/GREAT_PPPFLT_kinematic_DF_Fixed_PPPRTK.xml"
+                "-x", "${workspaceFolder}/data/2023305/GREAT_PPPFLT_kinematic_DF_Fixed_PPPRTK.xml"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",
@@ -34,8 +34,8 @@
             "program": "${workspaceFolder}/script/run_greatpvt_parallel.py",
             "console": "integratedTerminal",
             "args": [  
-                        "${workspaceFolder}/data/GA_2023070/xml/GREAT_PPPFLT_kinematic_DF_Fixed_PPPRTK.xml",
-                        "${workspaceFolder}/data/GA_2023070/usr_20_obs",
+                        "${workspaceFolder}/data/2023305/GREAT_PPPFLT_FIX_DF_Fixed_AUG.xml",
+                        "${workspaceFolder}/data/2023305/GA/usr_obs",
                         "-j", "10"
                     ],
         },
@@ -58,6 +58,28 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [],
+        },
+        {
+            "name": "plot_stations",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/script/plot_stations.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "--svr_usr", "./data/2023305/Jp/svr_obs/*.23o", "./data/2023305/Jp/usr_obs/*.23o"
+            ],
+        },
+        {
+            "name": "fit2crd",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/script/fit2crd.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "${workspaceFolder}/data/2023305/Jp/usr_obs/result_aug_GE"
+            ],
         },
     ]
 }

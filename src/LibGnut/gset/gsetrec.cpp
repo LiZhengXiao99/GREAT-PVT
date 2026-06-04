@@ -18,6 +18,7 @@
 
 #include "gset/gsetrec.h"
 #include "gutils/gsysconv.h"
+#include "gutils/gautopath.h"
 
 using namespace std;
 using namespace pugi;
@@ -45,6 +46,7 @@ namespace gnut
         _beg = FIRST_TIME;
         _end = LAST_TIME;
         _overwrite = false;
+        _true_crd_reader = nullptr;
     }
 
     t_gsetrec::~t_gsetrec()
@@ -113,16 +115,26 @@ namespace gnut
         tmp->rec(site.attribute("rec").value(), beg, end); 
         tmp->ant(site.attribute("ant").value(), beg, end); 
 
+        // Ensure true_crd is loaded for override check
+        if (!_true_crd_reader)
+        {
+            _load_true_crd();
+        }
+
         string x = site.attribute("X").value();
         string y = site.attribute("Y").value();
         string z = site.attribute("Z").value();
         if (!x.empty() && !y.empty() && !z.empty())
         {
-            xyz[0] = str2dbl(x);
-            xyz[1] = str2dbl(y);
-            xyz[2] = str2dbl(z);
-            t_gtriple std(10, 10, 10); 
-            tmp->crd(xyz, std, beg, end);
+            // Only override with XML coordinates if true_crd is not available for this site
+            if (!_true_crd_reader || !_true_crd_reader->has_site(s))
+            {
+                xyz[0] = str2dbl(x);
+                xyz[1] = str2dbl(y);
+                xyz[2] = str2dbl(z);
+                t_gtriple std(10, 10, 10); 
+                tmp->crd(xyz, std, beg, end);
+            }
         }
 
         string dx = site.attribute("DX").value();
@@ -209,12 +221,76 @@ namespace gnut
 
     t_gtriple t_gsetrec::_get_crd_xyz(string s)
     {
+        // Lazy-load true_crd file on first access
+        if (!_true_crd_reader)
+        {
+            _load_true_crd();
+        }
+
+        // Priority 1: true_crd file
+        if (_true_crd_reader && _true_crd_reader->has_site(s))
+        {
+            return _true_crd_reader->get_crd_xyz(s);
+        }
+
+        // Priority 2: XML attributes
         xml_node site = _doc.child(XMLKEY_ROOT).child(XMLKEY_REC).find_child_by_attribute(XMLKEY_REC_REC, "id", s.c_str());
 
         t_gtriple xyz(site.attribute("X").as_double(),
                       site.attribute("Y").as_double(),
                       site.attribute("Z").as_double());
         return xyz;
+    }
+
+    void t_gsetrec::_load_true_crd()
+    {
+        if (_true_crd_reader) return;  // already loaded
+
+        xml_node inp_node = _doc.child(XMLKEY_ROOT).child("inputs");
+        if (!inp_node) return;
+
+        xml_node tc_node = inp_node.child("true_crd");
+        if (!tc_node) return;
+
+        string path = tc_node.child_value();
+        str_erase(path);
+        if (path == "0")
+        {
+            string bp = inp_node.child_value("basepath");
+            string tblPath = inp_node.child_value("tbl");
+            str_erase(bp);
+            str_erase(tblPath);
+            path = gnut::findTrueCrdFile(bp);
+            if (path.empty() && !tblPath.empty()) path = gnut::findTrueCrdFile(tblPath);
+        }
+        if (!path.empty() && path != "0")
+        {
+            _true_crd_reader = make_shared<t_gtruecrd>(path);
+            if (!_true_crd_reader->is_loaded())
+            {
+                _true_crd_reader = nullptr;
+            }
+        }
+    }
+
+    t_gtriple t_gsetrec::get_true_crd_xyz(string s)
+    {
+        if (!_true_crd_reader)
+        {
+            _load_true_crd();
+        }
+
+        if (_true_crd_reader && _true_crd_reader->has_site(s))
+        {
+            return _true_crd_reader->get_crd_xyz(s);
+        }
+
+        return t_gtriple(0.0, 0.0, 0.0);
+    }
+
+    bool t_gsetrec::has_true_crd() const
+    {
+        return _true_crd_reader != nullptr && _true_crd_reader->is_loaded();
     }
 
     t_gtriple t_gsetrec::_get_ecc_neu(string s)

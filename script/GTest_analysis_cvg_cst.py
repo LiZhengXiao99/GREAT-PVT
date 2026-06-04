@@ -2,6 +2,7 @@
 # coding:utf-8
 
 import os
+import re
 import shutil
 import datetime
 import math
@@ -1610,13 +1611,13 @@ if __name__ == "__main__":
     opt.start_time_str = ''
     opt.end_time_str = ''
 
-    dir_00 = r'/home/lzx/code/GREAT-PVT/data/GA_2023070/result_KIN_UC_GE_ion'
-    dir_01 = r'/home/lzx/code/GREAT-PVT/data/GA_2023070/result_KIN_UC_GE_ion_trp'
-    dir_02 = r'/home/lzx/code/GREAT-PVT/data/GA_2023070/result_KIN_UC_GE'
+    dir_00 = r'/home/lzx/code/GREAT-PVT/data/2023305/products/result_stec'
+    dir_01 = r'/home/lzx/code/GREAT-PVT/data/2023305/products/result_zwd'
+    dir_02 = r'/home/lzx/code/GREAT-PVT/data/2023305/products/result_stec_zwd'
     # dir_03 = r'/home/zxli/code/GKit_uducppp-master/data/GA_2023132_ppprtk_20/result-uduc-krige-sigma01'
     # dir_04 = r'/home/zxli/code/GKit_uducppp-master/data/GA_2023132_ppprtk_20/result-uduc_dim'
     # dir_05 = r'/home/zxli/code/GKit_uducppp-master/data/GA_2023132_ppprtk_20/result-uduc_rdcb_single_sigma005'
-    dirdst = r'/home/lzx/code/GREAT-PVT/data/GA_2023070/compare'
+    dirdst = r'/home/lzx/code/GREAT-PVT/data/2023305/compare'
 
     #dir_00 = r'/stars/multi-freq-PPPRTK/GA-2023070-2023079/All_result/select_ppprtk/result-uduc-usr-GEC-2f-355-200/'
     #dir_01 = r'/stars/multi-freq-PPPRTK/GA-2023070-2023079/All_result/select_ppprtk/result-uduc-usr-GEC-s2u5-355-200/'
@@ -1626,8 +1627,8 @@ if __name__ == "__main__":
 
     # lst_dir = [dir_00,dir_01,dir_02,dir_03,dir_04,dir_05]
     # lst_md = ['sd','rdcb_single','rdcb_iter','rdcb_single_sigma01','rdcb_single_sigma03','rdcb_single_sigma005']
-    lst_dir = [dir_00, dir_01,dir_02]
-    lst_md = ['ion', 'ion_trp', 'ion_trp_test']
+    lst_dir = [dir_00,dir_01,dir_02]
+    lst_md = ['stec', 'zwd','stec_zwd']
     opt.dirres = dirdst
 
     first_conv_period = False

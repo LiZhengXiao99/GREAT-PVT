@@ -8,3 +8,6 @@
 /home/lzx/code/GREAT-PVT/script/__pycache__
 ./script/__pycache__
 ./script/GTest_analysis_cvg_cst.py
+./script/download_epn_obs.py
+./script/GTest_analysis_cvg_cst.py
+./script/crx2rnx

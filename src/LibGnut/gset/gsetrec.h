@@ -24,9 +24,11 @@
 #include <map>
 #include <string>
 #include <iostream>
+#include <memory>
 
 #include "gdata/grec.h"
 #include "gset/gsetbase.h"
+#include "gset/gtruecrd.h"
 #include "gutils/gtypeconv.h"
 #include "gutils/gtriple.h"
 #include "gmodels/ggpt.h"
@@ -56,6 +58,12 @@ namespace gnut
         /** @brief get crd xyz */
         t_gtriple get_crd_xyz(string s);
 
+        /** @brief get crd xyz from true_crd file (if available) */
+        t_gtriple get_true_crd_xyz(string s);
+
+        /** @brief check if true_crd file is loaded */
+        bool has_true_crd() const;
+
         /** @brief get all objects IDs */
         set<string> objects();                                  
         shared_ptr<t_grec> grec(string s, t_spdlog spdlog = 0); 
@@ -83,6 +91,9 @@ namespace gnut
         /** @brief get all objects IDs */
         set<string> _objects();
 
+        /** @brief load true_crd file from XML config */
+        void _load_true_crd();
+
         string _rec;      // default receiver name
         string _id;       // receiver id
         string _name_rec; // receiver name
@@ -92,6 +103,9 @@ namespace gnut
         double _Y;        // receiver Y-coordinate [m]
         double _Z;        // receiver Z-coordinate [m]
         bool _overwrite;
+
+        shared_ptr<t_gtruecrd> _true_crd_reader;  ///< true_crd file reader
+        bool _true_crd_enabled;                   ///< whether true_crd is enabled globally
 
     private:
     };

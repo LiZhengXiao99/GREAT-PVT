@@ -3,6 +3,7 @@
 #include "gutils/gfileconv.h"
 #include <chrono>
 #include <thread>
+#include <sys/stat.h>
 
 using namespace std;
 using namespace gnut;
@@ -339,6 +340,64 @@ int main(int argc, char** argv)
         critical_missing = true;
     }
 
+    // 6. FIX mode: must have coordinates (true_crd or XML receiver coords)
+    t_gsetproc* gsetproc = dynamic_cast<t_gsetproc*>(&gset);
+    t_gsetrec* gsetrec = dynamic_cast<t_gsetrec*>(&gset);
+    if (gsetproc && gsetproc->crd_est() == CONSTRPAR::FIX)
+    {
+        bool has_crd_source = false;
+        if (gsetrec)
+        {
+            // Force lazy-load of true_crd
+            gsetrec->get_true_crd_xyz("");
+            if (gsetrec->has_true_crd())
+            {
+                has_crd_source = true;
+            }
+            else
+            {
+                // Fallback: check XML receiver coordinates for each site
+                for (const string& site : sites)
+                {
+                    t_gtriple xyz = gsetrec->get_crd_xyz(site);
+                    if (!gnut::double_eq(xyz[0], 0.0) &&
+                        !gnut::double_eq(xyz[1], 0.0) &&
+                        !gnut::double_eq(xyz[2], 0.0))
+                    {
+                        has_crd_source = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!has_crd_source)
+        {
+            SPDLOG_LOGGER_CRITICAL(my_logger, "CRITICAL: FIX mode requires coordinates! Check true_crd or receiver X/Y/Z in XML.");
+            critical_missing = true;
+        }
+    }
+
+    // 7. PPP-RTK: AUG file must exist if aug_input is configured
+    {
+        xml_node aug_node = gset.config_node().child("aug_input");
+        if (aug_node)
+        {
+            string aug_path = aug_node.child_value("path");
+            gset.str_erase(aug_path);
+            double iono_cfg = str2dbl(aug_node.child_value("iono"));
+            double trop_cfg = str2dbl(aug_node.child_value("trop"));
+            if (!aug_path.empty() && (iono_cfg != 0.0 || trop_cfg != 0.0))
+            {
+                struct stat st;
+                if (stat(aug_path.c_str(), &st) != 0)
+                {
+                    SPDLOG_LOGGER_CRITICAL(my_logger, "CRITICAL: PPP-RTK AUG file/directory not found: " + aug_path);
+                    critical_missing = true;
+                }
+            }
+        }
+    }
+
     if (critical_missing)
     {
         SPDLOG_LOGGER_CRITICAL(my_logger, "Missing critical input files. Aborting.");
@@ -368,7 +427,6 @@ int main(int argc, char** argv)
     if (system.find("SBS") != system.end()) sys_str += "S";
     if (sys_str.empty()) sys_str = "GREC";
 
-    t_gsetproc* gsetproc = dynamic_cast<t_gsetproc*>(&gset);
     OBSCOMBIN obs_combin = gsetproc->obs_combin();
     string mode_str;
     if (gsetproc->pos_kin()) mode_str = "KIN";

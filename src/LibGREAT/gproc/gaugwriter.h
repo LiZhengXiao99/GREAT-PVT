@@ -65,6 +65,7 @@ public:
 
 private:
     bool _writeHeader();
+    bool _writeObsCodePairs(const vector<t_gsatdata>& data);
     bool _writeEpochBody(const t_gtime& epoch,
                          const t_gallpar& X_fix,
                          const t_gallpar& X_float,

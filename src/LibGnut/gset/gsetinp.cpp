@@ -57,9 +57,7 @@ namespace gnut
         if (tmp == "IFCB")
             return IFMT::IFCB_INP;
 
-        string message = "The Type : " + tmp + " is not support, check your xml";
-        spdlog::warn(message);
-        throw logic_error(message);
+        return IFMT::UNDEF;
     }
 
     string t_gsetinp::ifmt2str(const IFMT &f)
@@ -160,6 +158,11 @@ namespace gnut
             }
 
             IFMT ifmt = str2ifmt(fmt);
+            if (ifmt == IFMT::UNDEF)
+            {
+                itFMT++;
+                continue;
+            }
             vector<string> inputs = _inputs(fmt); //get file name in input node
             vector<string>::const_iterator itINP = inputs.begin();
             while (itINP != inputs.end())
@@ -324,7 +327,7 @@ namespace gnut
         // UPD: search common types and all systems
         if (!has_content("upd"))
         {
-            vector<string> upd_types = {"ewl", "wl", "nl"};
+            vector<string> upd_types = {"ewl", "ewl24", "ewl25", "wl", "nl"};
             for (const string &t : upd_types)
             {
                 vector<string> paths = gnut::findUPDFiles(bp, year, doy, t);
@@ -366,6 +369,14 @@ namespace gnut
             string path = gnut::findLeapFile(bp);
             if (path.empty() && !tblPath.empty()) path = gnut::findLeapFile(tblPath);
             add_to_xml("leapsecond", path);
+        }
+
+        // TRUE_CRD
+        if (!has_content("true_crd"))
+        {
+            string path = gnut::findTrueCrdFile(bp);
+            if (path.empty() && !tblPath.empty()) path = gnut::findTrueCrdFile(tblPath);
+            add_to_xml("true_crd", path);
         }
 
         _gmutex.unlock();
@@ -533,18 +544,15 @@ namespace gnut
         while (itFMT != ifmt.end())
         {
             string fmt = *itFMT;
-            if (fmt == "basepath" || fmt == "tbl")
+            if (fmt == "basepath" || fmt == "tbl" || fmt == "true_crd")
             {
                 itFMT++;
                 continue;
             }
-            try
+            IFMT ifmt_enum = str2ifmt(fmt);
+            if (ifmt_enum == IFMT::UNDEF)
             {
-                str2ifmt(fmt);
-            }
-            catch (const std::exception &e)
-            {
-                if (fmt == "basepath" || fmt == "tbl")
+                if (fmt == "basepath" || fmt == "tbl" || fmt == "true_crd")
                 {
                     itFMT++;
                     continue;

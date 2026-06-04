@@ -107,56 +107,158 @@ bool t_gaugwriter::_writeHeader()
         _fout = new t_giof(_path);
     }
 
+    auto fmt_comment = [](const string& content, const string& comment) -> string {
+        string line = content;
+        size_t end = line.find_last_not_of(' ');
+        if (end != string::npos) line.erase(end + 1);
+        int pad = 60 - (int)line.size();
+        if (pad < 1) pad = 1;
+        line.append(pad, ' ');
+        line += "# " + comment + "\n";
+        return line;
+    };
+
     ostringstream os;
-    os << "SAT  IPPLAT  IPPLON  AZIM  ELEV  STEC(m) SIGMA(m)           # DATA TYPES\n";
-    os << "     NLOCK  EL_Max  StecP1P2  FIX_TAG                       # DATA TYPES\n";
-    os << "SIon_given = SIon_true - 1/((F1/F2)**2-1) * (DCB_r + DCB_s) # COMMENT\n";
-    os << "63781363                                                    # R OF EARTH (cm)\n";
-    os << "450000                                                      # HEIGHT OF SHELL (cm)\n";
-    os << "                                      % type-BDS :   [ L2I ]  # COMMENT\n";
+    os << fmt_comment("SAT  IPPLAT  IPPLON  AZIM  ELEV  STEC(m) SIGMA(m)", "DATA TYPES");
+    os << fmt_comment("     NLOCK  EL_Max  StecP1P2  FIX_TAG", "DATA TYPES");
+    os << fmt_comment("SIon_given = SIon_true - 1/((F1/F2)**2-1) * (DCB_r + DCB_s)", "COMMENT");
+    os << fmt_comment("63781363", "R OF EARTH (cm)");
+    os << fmt_comment("450000", "HEIGHT OF SHELL (cm)");
 
     // TIME START
-    int wk1 = _beg.gwk();
-    double sow1 = _beg.sow() + _beg.dsec();
-    os << " (" << setw(4) << setfill('0') << wk1 << " " << fixed << setprecision(1) << setw(10) << sow1 << "s) ";
-    os << setfill(' ');
-    os << _beg.str_ymd() << " " << _beg.str_hms() << ".0 GPST                # TIME START\n";
+    {
+        ostringstream tmp;
+        int wk = _beg.gwk();
+        double sow = _beg.sow() + _beg.dsec();
+        tmp << " (" << setw(4) << setfill('0') << wk << " " << fixed << setprecision(1) << setw(10) << sow << "s) ";
+        tmp << setfill(' ');
+        tmp << _beg.str_ymd() << " " << _beg.str_hms() << ".0 GPST";
+        os << fmt_comment(tmp.str(), "TIME START");
+    }
 
     // TIME END
-    int wk2 = _end.gwk();
-    double sow2 = _end.sow() + _end.dsec();
-    os << " (" << setw(4) << setfill('0') << wk2 << " " << fixed << setprecision(1) << setw(10) << sow2 << "s) ";
-    os << setfill(' ');
-    os << _end.str_ymd() << " " << _end.str_hms() << ".0 GPST                # TIME END\n";
+    {
+        ostringstream tmp;
+        int wk = _end.gwk();
+        double sow = _end.sow() + _end.dsec();
+        tmp << " (" << setw(4) << setfill('0') << wk << " " << fixed << setprecision(1) << setw(10) << sow << "s) ";
+        tmp << setfill(' ');
+        tmp << _end.str_ymd() << " " << _end.str_hms() << ".0 GPST";
+        os << fmt_comment(tmp.str(), "TIME END");
+    }
 
     // RCV/ANT TYPE
-    os << left << setw(30) << _rcv << " " << setw(15) << _ant << " " << setw(6) << _radome
-       << "         # RCV/ANT TYPE\n";
+    {
+        ostringstream tmp;
+        tmp << left << setw(30) << _rcv << " " << setw(15) << _ant << " " << setw(6) << _radome;
+        os << fmt_comment(tmp.str(), "RCV/ANT TYPE");
+    }
 
     // ACCURATE POSITION XYZ (retain 4 decimals => 0.1 mm)
-    os << fixed << setprecision(4)
-       << setw(16) << _xyz[0] << " " << setw(16) << _xyz[1] << " " << setw(16) << _xyz[2]
-       << "         # ACCURATE POSITION XYZ\n";
+    {
+        ostringstream tmp;
+        tmp << fixed << setprecision(4)
+            << setw(16) << _xyz[0] << " " << setw(16) << _xyz[1] << " " << setw(16) << _xyz[2];
+        os << fmt_comment(tmp.str(), "ACCURATE POSITION XYZ");
+    }
 
     // ACCURATE POSITION BLH (lat/lon in degrees, height in m)
-    os << fixed << setprecision(10) << setw(18) << _blh[0] * R2D << " ";
-    os << fixed << setprecision(10) << setw(18) << _blh[1] * R2D << " ";
-    os << fixed << setprecision(4)  << setw(16) << _blh[2]
-       << "         # ACCURATE POSITION BLH\n";
+    {
+        ostringstream tmp;
+        tmp << fixed << setprecision(10) << setw(18) << _blh[0] * R2D << " ";
+        tmp << fixed << setprecision(10) << setw(18) << _blh[1] * R2D << " ";
+        tmp << fixed << setprecision(4) << setw(16) << _blh[2];
+        os << fmt_comment(tmp.str(), "ACCURATE POSITION BLH");
+    }
 
     // SAT SYSTEM
-    os << " " << left << setw(60) << _sys_str << "# SAT SYSTEM\n";
+    {
+        ostringstream tmp;
+        tmp << " " << left << setw(59) << _sys_str;
+        os << fmt_comment(tmp.str(), "SAT SYSTEM");
+    }
 
     // EXECUTABLE NAME
-    os << " GREAT-PVT                                                 # EXECUTABLE NAME\n";
+    os << fmt_comment(" GREAT-PVT", "EXECUTABLE NAME");
 
     // END OF HEADER
-    os << "                                                            # END OF HEADER\n";
+    os << fmt_comment("", "END OF HEADER");
 
     _fout->write(os.str().c_str(), os.str().size());
     _fout->flush();
     _header_written = true;
 
+    return true;
+}
+
+bool t_gaugwriter::_writeObsCodePairs(const vector<t_gsatdata>& data)
+{
+    if (!_fout) return false;
+
+    // Collect one obs-code pair per system from the first available satellite
+    map<char, pair<string, string>> sys_pairs;
+
+    for (const auto& satdata : data)
+    {
+        char sys_char = satdata.sat()[0];
+        if (sys_pairs.find(sys_char) != sys_pairs.end()) continue;
+
+        set<GOBSBAND> bands = satdata.band_avail(true);
+        if (bands.size() < 2) continue;
+
+        // Find first two valid phase observations
+        GOBS obs1 = X;
+        GOBS obs2 = X;
+        auto it = bands.begin();
+        while (it != bands.end() && obs1 == X)
+        {
+            obs1 = satdata.id_phase(*it);
+            ++it;
+        }
+        while (it != bands.end() && obs2 == X)
+        {
+            obs2 = satdata.id_phase(*it);
+            ++it;
+        }
+
+        if (obs1 != X && obs2 != X)
+        {
+            sys_pairs[sys_char] = make_pair(gobs2str(obs1), gobs2str(obs2));
+        }
+    }
+
+    if (sys_pairs.empty()) return true;
+
+    ostringstream os;
+    auto sys_name = [](char c) -> string {
+        switch (c) {
+            case 'G': return "GPS";
+            case 'R': return "GLO";
+            case 'E': return "GAL";
+            case 'C': return "BDS";
+            case 'J': return "QZS";
+            case 'I': return "IRN";
+            case 'S': return "SBAS";
+            default:  return "UNK";
+        }
+    };
+
+    for (const auto& sp : sys_pairs)
+    {
+        const string& s1 = sp.second.first;
+        const string& s2 = sp.second.second;
+        string pair_str = s1 + "-" + s2;
+        string name = sys_name(sp.first);
+
+        os << "  " << name << ": " << pair_str;
+        int prefix_len = 2 + (int)name.size() + 2 + (int)pair_str.size();
+        int padding = 60 - prefix_len;
+        if (padding < 1) padding = 1;
+        os << string(padding, ' ') << "# OBS CODE PAIR\n";
+    }
+
+    _fout->write(os.str().c_str(), os.str().size());
+    _fout->flush();
     return true;
 }
 
@@ -175,6 +277,7 @@ bool t_gaugwriter::writeEpoch(const t_gtime& epoch,
     {
         if (!_writeHeader())
             return false;
+        _writeObsCodePairs(data);
     }
 
     if (!_fout) return false;
