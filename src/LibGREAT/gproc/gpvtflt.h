@@ -291,6 +291,7 @@ namespace great
         map<string, string> _sat_freqs;   ///< sat freqs
         t_gaugwriter *_aug_writer;        ///< aug writer
         t_gppprtk *_ppprtk;               ///< PPP-RTK constraint injector
+        double _trop_init;                ///< AUG ZWD init: 0=off, >0=fixed sigma, <0=use aug std
         map<string, int> _lock_epo_num;   ///< lock epochs per sat
         map<string, double> _el_max_deg;  ///< max elevation per sat arc
         int _init_period;                 ///< re-convergence period [s], 0=disabled

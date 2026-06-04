@@ -128,7 +128,7 @@ namespace great
             if (i >= 0)
             {
                 zwd = param[i].value();
-                if (param[i].apriori() > 1E-4 && (zwd == 0.0 || epoch == param[i].beg))
+                if (zwd == 0.0)
                 {
                     zwd = _tropoModel->getZWD(ell, epoch);
                     param[i].value(zwd);

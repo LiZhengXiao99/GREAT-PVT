@@ -306,7 +306,8 @@ bool t_gaugwriter::_writeEpochBody(const t_gtime& epoch,
     int igrn = X_fix.getParam(site, par_type::GRD_N, "");
     int igre = X_fix.getParam(site, par_type::GRD_E, "");
     double zwd = (itrp >= 0) ? X_fix.getPar(itrp).value() : 0.0;
-    double zwd_std = (itrp >= 0) ? sqrt(Q_fix(itrp + 1, itrp + 1)) : 0.5;
+    double q_zwd = (itrp >= 0) ? Q_fix(itrp + 1, itrp + 1) : 0.25;
+    double zwd_std = (q_zwd >= 0.0) ? sqrt(q_zwd) : 0.5;
     double grd_n = (igrn >= 0) ? X_fix.getPar(igrn).value() : 0.0;
     double grd_e = (igre >= 0) ? X_fix.getPar(igre).value() : 0.0;
 
@@ -382,7 +383,8 @@ bool t_gaugwriter::_writeEpochBody(const t_gtime& epoch,
         if (is_any_fixed)
         {
             stec = X_fix.getPar(ision).value();
-            stec_std = sqrt(Q_fix(ision + 1, ision + 1));
+            double q_stec = Q_fix(ision + 1, ision + 1);
+            stec_std = (q_stec >= 0.0) ? sqrt(q_stec) : 0.0;
         }
         else
         {
@@ -390,12 +392,14 @@ bool t_gaugwriter::_writeEpochBody(const t_gtime& epoch,
             if (ision_float >= 0)
             {
                 stec = X_float.getPar(ision_float).value();
-                stec_std = sqrt(Q_fix(ision_float + 1, ision_float + 1));
+                double q_stec = Q_fix(ision_float + 1, ision_float + 1);
+                stec_std = (q_stec >= 0.0) ? sqrt(q_stec) : 0.0;
             }
             else
             {
                 stec = X_fix.getPar(ision).value();
-                stec_std = sqrt(Q_fix(ision + 1, ision + 1));
+                double q_stec = Q_fix(ision + 1, ision + 1);
+                stec_std = (q_stec >= 0.0) ? sqrt(q_stec) : 0.0;
             }
         }
 

@@ -1614,7 +1614,7 @@ if __name__ == "__main__":
     dir_00 = r'/home/lzx/code/GREAT-PVT/data/2023305/products/result_stec'
     dir_01 = r'/home/lzx/code/GREAT-PVT/data/2023305/products/result_zwd'
     dir_02 = r'/home/lzx/code/GREAT-PVT/data/2023305/products/result_stec_zwd'
-    # dir_03 = r'/home/zxli/code/GKit_uducppp-master/data/GA_2023132_ppprtk_20/result-uduc-krige-sigma01'
+    dir_03 = r'/home/lzx/code/GREAT-PVT/data/2023305/products/result_KIN_UC_GE'
     # dir_04 = r'/home/zxli/code/GKit_uducppp-master/data/GA_2023132_ppprtk_20/result-uduc_dim'
     # dir_05 = r'/home/zxli/code/GKit_uducppp-master/data/GA_2023132_ppprtk_20/result-uduc_rdcb_single_sigma005'
     dirdst = r'/home/lzx/code/GREAT-PVT/data/2023305/compare'
@@ -1625,10 +1625,10 @@ if __name__ == "__main__":
     #dir_03 = r'/stars/multi-freq-PPPRTK/GA-2023070-2023079/All_result/select_ppprtk/result-uduc-usr-GEC-5f-355-200/'
     #dirdst = r'/stars/multi-freq-PPPRTK/GA-2023070-2023079/All_result/select_ppprtk/picture/cvg_tests/'
 
-    # lst_dir = [dir_00,dir_01,dir_02,dir_03,dir_04,dir_05]
-    # lst_md = ['sd','rdcb_single','rdcb_iter','rdcb_single_sigma01','rdcb_single_sigma03','rdcb_single_sigma005']
-    lst_dir = [dir_00,dir_01,dir_02]
-    lst_md = ['stec', 'zwd','stec_zwd']
+    lst_dir = [dir_00,dir_01,dir_02,dir_03]
+    lst_md = ['stec', 'zwd','stec_zwd','stec_zwd_noZwdInit']
+    # lst_dir = [dir_00]
+    # lst_md = ['stec_zwd']
     opt.dirres = dirdst
 
     first_conv_period = False

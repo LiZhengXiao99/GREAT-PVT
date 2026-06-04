@@ -209,7 +209,7 @@ bool t_gaugrdr::_parseBody(ifstream& fs)
 
         // Epoch line: > YYYY MM DD HH MM SS.ssssss  n
         if (line[0] == '>') {
-            if (has_epoch && !cur_ep.sats.empty()) {
+            if (has_epoch) {
                 raw_epochs.push_back(cur_ep);
             }
 
@@ -355,6 +355,28 @@ bool t_gaugrdr::getEpoch(const t_gtime& t, AugEpoch& out)
             " req=" + t.str_ymdhms());
         return false;
     }
+
+    out = _epochs[idx];
+    return true;
+}
+
+bool t_gaugrdr::getNearestEpoch(const t_gtime& t, AugEpoch& out, double max_dt) const
+{
+    if (!_is_open || _epochs.empty()) return false;
+
+    // Find closest epoch
+    double dt_min = 1e9;
+    int idx = -1;
+    for (size_t i = 0; i < _epochs.size(); i++) {
+        double dt = fabs(_epochs[i].epoch - t);
+        if (dt < dt_min) {
+            dt_min = dt;
+            idx = i;
+        }
+    }
+
+    if (idx < 0) return false;
+    if (dt_min > max_dt) return false;
 
     out = _epochs[idx];
     return true;

@@ -1,13 +1,17 @@
-/src/build
-/src/build_Windows
-/src/build_Linux
-/src/data
-/data
+# Build outputs
 /build
 /build_Linux
-/home/lzx/code/GREAT-PVT/script/__pycache__
-./script/__pycache__
-./script/GTest_analysis_cvg_cst.py
-./script/download_epn_obs.py
-./script/GTest_analysis_cvg_cst.py
-./script/crx2rnx
+/build_Windows
+
+# Data directory
+/data
+
+# Python cache
+script/__pycache__/
+
+# Untracked scripts
+script/GTest_analysis_cvg_cst.py
+script/download_epn_obs.py
+script/crx2rnx
+script/crx_downloaded_fromGA.sh
+script/arial.ttf

@@ -33,7 +33,7 @@ namespace great {
 class LibGREAT_LIBRARY_EXPORT t_gppprtk {
 public:
     // Constructor with parsed config values
-    t_gppprtk(const string& path, double ionoCfg, double tropCfg, int wgtMode,
+    t_gppprtk(const string& path, double ionoCfg, double tropCfg,
               t_spdlog spdlog = nullptr);
     ~t_gppprtk();
 
@@ -57,6 +57,11 @@ public:
 
     bool enabled() const { return _enabled; }
 
+    // Query AUG ZWD and its std for initialization (nearest epoch within max_dt).
+    // Returns false if no valid AUG data is available or zwd_std <= 0.
+    bool queryZwd(const t_gtime& t, double& zwd, double& zwd_std,
+                  double max_dt = 30.0) const;
+
     // Outlier rejection threshold for AUG constraints (m). 0 = disabled.
     void setOutlierThres(double thres) { _outlierThres = thres; }
 
@@ -79,8 +84,7 @@ private:
                               int& n_zwd, int& n_rejected);
     string _selectRefSat(const AugEpoch& aug, const vector<t_gsatdata>& data, char sys,
                          const map<string, int>& lock_epo);
-    double _calIonoVar(int wgtMode, double el_rad, double var0,
-                       double std_s0, double std_rs);
+    double _calIonoVar(double el_rad, double var0);
     double _resolveVar(double cfgVal, double augSigma);
 
     t_gaugrdr* _rdr;
@@ -88,7 +92,6 @@ private:
     string _site;
     string _path;
     bool _enabled;
-    int _wgtMode;
     double _ionoCfg;
     double _tropCfg;
     map<char, string> _last_ref;  ///< last epoch reference sat per system (G/E/C/J/I)

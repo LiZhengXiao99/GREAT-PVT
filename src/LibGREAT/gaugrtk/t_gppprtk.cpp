@@ -9,9 +9,9 @@
 
 namespace great {
 
-t_gppprtk::t_gppprtk(const string& path, double ionoCfg, double tropCfg, int wgtMode,
+t_gppprtk::t_gppprtk(const string& path, double ionoCfg, double tropCfg,
                        t_spdlog spdlog)
-    : _rdr(nullptr), _spdlog(spdlog), _enabled(false), _wgtMode(1), _ionoCfg(0.0), _tropCfg(0.0), _outlierThres(0.0), _iqrEnabled(false)
+    : _rdr(nullptr), _spdlog(spdlog), _enabled(false), _ionoCfg(0.0), _tropCfg(0.0), _outlierThres(0.0), _iqrEnabled(false)
 {
     if (path.empty()) {
         if (_spdlog) SPDLOG_LOGGER_INFO(_spdlog, "AUG path empty. PPP-RTK disabled.");
@@ -36,8 +36,6 @@ t_gppprtk::t_gppprtk(const string& path, double ionoCfg, double tropCfg, int wgt
     _path = p;
     _ionoCfg = ionoCfg;
     _tropCfg = tropCfg;
-    _wgtMode = wgtMode;
-    if (_wgtMode < 0 || _wgtMode > 5) _wgtMode = 1;
 
     if (_ionoCfg == 0.0 && _tropCfg == 0.0) {
         if (_spdlog) SPDLOG_LOGGER_WARN(_spdlog, "Both iono and trop are 0. PPP-RTK disabled.");
@@ -50,8 +48,7 @@ t_gppprtk::t_gppprtk(const string& path, double ionoCfg, double tropCfg, int wgt
         SPDLOG_LOGGER_INFO(_spdlog,
             "PPP-RTK config: path=" + _path +
             " iono=" + to_string(_ionoCfg) +
-            " trop=" + to_string(_tropCfg) +
-            " wgt_mode=" + to_string(_wgtMode));
+            " trop=" + to_string(_tropCfg));
     }
 }
 
@@ -76,6 +73,21 @@ bool t_gppprtk::initReader(const string& site, const t_gtriple& xyz_rov)
         return false;
     }
     if (_spdlog) SPDLOG_LOGGER_INFO(_spdlog, "PPP-RTK AUG reader initialized: " + _path);
+    return true;
+}
+
+bool t_gppprtk::queryZwd(const t_gtime& t, double& zwd, double& zwd_std,
+                         double max_dt) const
+{
+    if (!_enabled || !_rdr) return false;
+
+    AugEpoch aug;
+    if (!_rdr->getNearestEpoch(t, aug, max_dt)) return false;
+
+    if (aug.zwd_std0 <= 0.0) return false;
+
+    zwd = aug.zwd;
+    zwd_std = aug.zwd_std0;
     return true;
 }
 
@@ -291,10 +303,9 @@ bool t_gppprtk::_buildStecConstraints(const AugEpoch& aug,
             double var;
             if (_ionoCfg < 0.0) {
                 // Sigma mode (auto sigma): use AUG sigma directly, ignore elevation weighting.
-                // Use AUG sigma directly, ignore elevation weighting.
                 var = var_base;
             } else {
-                var = _calIonoVar(_wgtMode, el_rad, var_base, rec->sigma_m, ref_rec->sigma_m);
+                var = _calIonoVar(el_rad, var_base);
             }
 
             // NL un-fixed penalty removed per user request.
@@ -418,16 +429,6 @@ bool t_gppprtk::_buildZwdConstraints(const AugEpoch& aug,
         return false; // ZWD disabled when _tropCfg == 0
     }
 
-    // Skip ZWD constraint if current estimate is already more precise than AUG
-    double zwd_var_current = Qx(param[idx_zwd].index, param[idx_zwd].index);
-    if (zwd_var_current > 0.0 && var >= zwd_var_current) {
-        if (_spdlog)
-            SPDLOG_LOGGER_DEBUG(_spdlog,
-                "PPP-RTK ZWD skipped: aug_var=" + to_string(var) +
-                "m^2 >= est_var=" + to_string(zwd_var_current) + "m^2");
-        return false;
-    }
-
     if (_spdlog)
         SPDLOG_LOGGER_DEBUG(_spdlog,
             "PPP-RTK ZWD: aug=" + to_string(aug.zwd) + "m est=" + to_string(est_zwd) +
@@ -445,29 +446,12 @@ bool t_gppprtk::_buildZwdConstraints(const AugEpoch& aug,
     return true;
 }
 
-double t_gppprtk::_calIonoVar(int wgtMode, double el_rad, double var0,
-                               double std_s0, double std_rs)
+double t_gppprtk::_calIonoVar(double el_rad, double var0)
 {
     double s = sin(el_rad);
     if (s < 1e-6) s = 1e-6;
 
-    double var = var0 / (s * s); // default mode 1
-
-    if (wgtMode == 0) {
-        var = var0;
-    } else if (wgtMode == 2) {
-        var = var0 / (s * s) + var0;
-    } else if (wgtMode == 3) {
-        var = var0 + var0 * cos(el_rad) * cos(el_rad);
-    } else if (wgtMode == 4) {
-        double el_deg = el_rad * 180.0 / G_PI;
-        if (el_deg > 30.0) var = var0;
-        else var = var0 / 4.0 / (s * s);
-    } else if (wgtMode == 5) {
-        double maxstd = std_s0 > std_rs ? std_s0 : std_rs;
-        var = maxstd * maxstd;
-    }
-    return var;
+    return var0 / (s * s);
 }
 
 double t_gppprtk::_resolveVar(double cfgVal, double augSigma)

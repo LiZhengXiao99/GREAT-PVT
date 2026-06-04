@@ -70,6 +70,7 @@ public:
     ~t_gaugrdr();
     bool init();
     bool getEpoch(const t_gtime& t, AugEpoch& out);
+    bool getNearestEpoch(const t_gtime& t, AugEpoch& out, double max_dt = 30.0) const;
     t_gtriple xyz_svr() const { return _xyz; }
     double distance_km() const { return _dist_km; }
     bool is_open() const { return _is_open; }

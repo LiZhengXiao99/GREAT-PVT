@@ -75,6 +75,7 @@ great::t_gpvtflt::t_gpvtflt(string mark, string mark_base, t_gsetbase *gset, t_g
     _init_period = dynamic_cast<t_gsetflt *>(gset)->init_period();
     _reconv_countdown = 0;
     _fix_fail_cnt = 0;
+    _trop_init = 0.0;
     _reconv_trigger = dynamic_cast<t_gsetproc *>(gset)->reconv_trigger();
     _reconv_crd_jump = dynamic_cast<t_gsetproc *>(gset)->reconv_crd_jump();
     _reconv_fix_fail = dynamic_cast<t_gsetproc *>(gset)->reconv_fix_fail();
@@ -192,6 +193,7 @@ great::t_gpvtflt::t_gpvtflt(string mark, string mark_base, t_gsetbase *gset, t_s
     _init_period = dynamic_cast<t_gsetflt *>(gset)->init_period();
     _reconv_countdown = 0;
     _fix_fail_cnt = 0;
+    _trop_init = 0.0;
     _reconv_trigger = dynamic_cast<t_gsetproc *>(gset)->reconv_trigger();
     _reconv_crd_jump = dynamic_cast<t_gsetproc *>(gset)->reconv_crd_jump();
     _reconv_fix_fail = dynamic_cast<t_gsetproc *>(gset)->reconv_fix_fail();
@@ -2461,7 +2463,7 @@ bool great::t_gpvtflt::InitProc(const t_gtime &begT, const t_gtime &endT, double
             string aug_path = aug_node.child_value("path");
             double iono_cfg = str2dbl(aug_node.child_value("iono"));
             double trop_cfg = str2dbl(aug_node.child_value("trop"));
-            int wgt_mode = (int)str2dbl(aug_node.child_value("wgt_mode"));
+            _trop_init = str2dbl(aug_node.child_value("trop_init"));
             
             // Trim path
             auto trim = [](string& s) {
@@ -2474,7 +2476,7 @@ bool great::t_gpvtflt::InitProc(const t_gtime &begT, const t_gtime &endT, double
             
             if (!aug_path.empty() && (iono_cfg != 0.0 || trop_cfg != 0.0))
             {
-                _ppprtk = new t_gppprtk(aug_path, iono_cfg, trop_cfg, wgt_mode, _spdlog);
+                _ppprtk = new t_gppprtk(aug_path, iono_cfg, trop_cfg, _spdlog);
                 _ppprtk->setSite(_site);
                 
                 // IQR outlier rejection for STEC constraints
@@ -4396,21 +4398,22 @@ void great::t_gpvtflt::_predictIono(const double& bl, const t_gtime& runEpoch)
                 double var = _sig_init_vion * _sig_init_vion;
                 if (_reconv_countdown > 0)
                 {
+                    if (_isBase)
+                    {
+                        var *= SQR(bl / (1e4));
+                    }
                     _initx(i, 0.0, var);
                 }
                 else
                 {
                     if (_isBase && double_eq(_Qx(i + 1, i + 1), var))
                     {
-                        var *= SQR(bl / (1e4));
-                        _Qx(i + 1, i + 1) = var;
+                        _Qx(i + 1, i + 1) *= SQR(bl / (1e4));
                         _param[i].value(1e-6);
                     }
-                    _param[i].value(0.0);
-                    _Qx(i + 1, i + 1) = var;
+
                     if (_cntrep == 1 && !double_eq(_Qx(i + 1, i + 1), var))
                     {
-
                         if (_isBase)
                         {
                             _Qx(i + 1, i + 1) += SQR(bl / (1e4) * cos(it->ele())) * _ionStoModel->getQ();
@@ -4485,25 +4488,54 @@ void great::t_gpvtflt::_predictTropo()
                     XYZ = tmpgrec->crd_arp(_epoch);
                 }
                 xyz2ell(XYZ, Ell, false);
-                if (tmpgmodel->tropoModel() != 0)
-                {
-                    _param[i].apriori(_sig_init_ztd);
-                }
 
                 if (!_initialized || _Qx(i + 1, i + 1) == 0.0 || _reconv_countdown > 0)
                 {
-                    if (_valid_ztd_xml)
+                    bool use_aug = false;
+                    double aug_zwd = 0.0;
+                    double aug_zwd_std = 0.0;
+
+                    if (_trop_init != 0.0 && _ppprtk && _ppprtk->enabled())
                     {
-                        _param[i].value(_aprox_ztd_xml - tmpgmodel->tropoModel()->getZHD(Ell, _epoch));
+                        use_aug = _ppprtk->queryZwd(_epoch, aug_zwd, aug_zwd_std);
+                    }
+
+                    if (use_aug && aug_zwd_std > 0.0)
+                    {
+                        _param[i].value(aug_zwd);
+                        _param[i].apriori(aug_zwd);
+                        double init_var;
+                        if (_trop_init > 0.0)
+                        {
+                            init_var = _trop_init * _trop_init;
+                        }
+                        else
+                        {
+                            init_var = aug_zwd_std * aug_zwd_std;
+                        }
+                        _initx(i, aug_zwd, init_var);
+                        if (_spdlog)
+                            SPDLOG_LOGGER_DEBUG(_spdlog,
+                                "ZWD initialized from AUG: " + to_string(aug_zwd) +
+                                "m std=" + to_string(sqrt(init_var)) + "m site=" + tmpsite);
+                    }
+                    else if (_valid_ztd_xml)
+                    {
+                        double zhd_xml = tmpgmodel->tropoModel()->getZHD(Ell, _epoch);
+                        _param[i].value(_aprox_ztd_xml - zhd_xml);
+                        _param[i].apriori(_param[i].value());
+                        _initx(i, _param[i].value(), ztdInit * ztdInit);
                     }
                     else
                     {
                         if (tmpgmodel->tropoModel() != 0)
                         {
-                            _param[i].value(tmpgmodel->tropoModel()->getZWD(Ell, _epoch));
+                            double zwd_apr = tmpgmodel->tropoModel()->getZWD(Ell, _epoch);
+                            _param[i].value(zwd_apr);
+                            _param[i].apriori(zwd_apr);
                         }
+                        _initx(i, _param[i].value(), ztdInit * ztdInit);
                     }
-                    _initx(i, _param[i].value(), ztdInit * ztdInit);
                 }
                 else
                 {
