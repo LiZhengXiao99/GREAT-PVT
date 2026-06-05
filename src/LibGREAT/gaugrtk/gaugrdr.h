@@ -1,6 +1,7 @@
 /**
  * @file         gaugrdr.h
  * @brief        AUG file reader for PPP-RTK augmentation
+ * @author       Li Zhengxiao
  * @version      1.0
  * @date         2025-05-23
  */

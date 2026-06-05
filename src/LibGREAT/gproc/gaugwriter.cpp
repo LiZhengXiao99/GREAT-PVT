@@ -1,6 +1,6 @@
 /**
  * @file         gaugwriter.cpp
- * @author       GREAT-WHU (https://github.com/GREAT-WHU)
+ * @author       GREAT-WHU (https://github.com/GREAT-WHU) / Li Zhengxiao
  * @brief        AUG file writer for PPP-AR augmentation
  * @version      1.0
  * @date         2024-08-29

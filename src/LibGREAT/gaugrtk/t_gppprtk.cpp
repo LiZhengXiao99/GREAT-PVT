@@ -1,6 +1,7 @@
 /**
  * @file         t_gppprtk.cpp
  * @brief        PPP-RTK constraint builder for single-station AUG
+ * @author       Li Zhengxiao
  */
 #include "t_gppprtk.h"
 #include "gutils/gtypeconv.h"
@@ -11,7 +12,7 @@ namespace great {
 
 t_gppprtk::t_gppprtk(const string& path, double ionoCfg, double tropCfg,
                        t_spdlog spdlog)
-    : _rdr(nullptr), _spdlog(spdlog), _enabled(false), _ionoCfg(0.0), _tropCfg(0.0), _outlierThres(0.0), _iqrEnabled(false)
+    : _rdr(nullptr), _spdlog(spdlog), _enabled(false), _ionoCfg(0.0), _tropCfg(0.0), _outlierThres(0.0), _iqrEnabled(false), _stecBoostN(0), _stecBoostM(1.0), _epochCount(0)
 {
     if (path.empty()) {
         if (_spdlog) SPDLOG_LOGGER_INFO(_spdlog, "AUG path empty. PPP-RTK disabled.");
@@ -121,6 +122,11 @@ bool t_gppprtk::buildConstraints(const t_gtime& epoch,
     // Build STEC constraints
     if (_ionoCfg != 0.0) {
         _buildStecConstraints(aug, param_float, data, dx, lock_epo, A_stec, P_stec, l_stec, n_stec, n_rej_stec);
+    }
+
+    // Count successful AUG epochs for STEC boost
+    if (_stecBoostN > 0 && n_stec > 0) {
+        _epochCount++;
     }
 
     // Build ZWD constraints
@@ -297,15 +303,24 @@ bool t_gppprtk::_buildStecConstraints(const AugEpoch& aug,
                 continue;
             }
 
-            // Variance
-            double el_rad = rec->el_deg * G_PI / 180.0;
-            double var_base = _resolveVar(_ionoCfg, rec->sigma_m);
+            // Variance: SD STEC variance = var(s0) + var(rs)
+            double var_s0_base = _resolveVar(_ionoCfg, rec->sigma_m);
+            double var_rs_base = _resolveVar(_ionoCfg, ref_rec->sigma_m);
             double var;
             if (_ionoCfg < 0.0) {
-                // Sigma mode (auto sigma): use AUG sigma directly, ignore elevation weighting.
-                var = var_base;
+                // Sigma mode (auto sigma): direct variance sum, no elevation weighting.
+                // var = var_s0_base + var_rs_base;
+                var = var_s0_base;
             } else {
-                var = _calIonoVar(el_rad, var_base);
+                // User-config mode: apply elevation-dependent weighting per satellite, then sum.
+                double el_s0 = rec->el_deg * G_PI / 180.0;
+                double el_rs = ref_rec->el_deg * G_PI / 180.0;
+                var = _calIonoVar(el_s0, var_s0_base) + _calIonoVar(el_rs, var_rs_base);
+            }
+
+            // Boost STEC weight for first N epochs
+            if (_stecBoostN > 0 && _epochCount < _stecBoostN) {
+                var /= (_stecBoostM * _stecBoostM);
             }
 
             // NL un-fixed penalty removed per user request.

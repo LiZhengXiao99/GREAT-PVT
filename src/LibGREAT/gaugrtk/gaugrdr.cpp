@@ -1,6 +1,7 @@
 /**
  * @file         gaugrdr.cpp
  * @brief        AUG file reader for PPP-RTK augmentation
+ * @author       Li Zhengxiao
  */
 #include "gaugrdr.h"
 #include <sys/stat.h>

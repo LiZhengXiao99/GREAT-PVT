@@ -2483,6 +2483,16 @@ bool great::t_gpvtflt::InitProc(const t_gtime &begT, const t_gtime &endT, double
                 string iqr_str = aug_node.child_value("iqr_enabled");
                 bool iqr_enabled = (str2dbl(iqr_str) != 0.0);
                 _ppprtk->setIqrEnabled(iqr_enabled);
+
+                // STEC boost for first N epochs
+                string boost_str = aug_node.child_value("stec_boost");
+                if (!boost_str.empty()) {
+                    istringstream iss(boost_str);
+                    int boost_n; double boost_m;
+                    if (iss >> boost_n >> boost_m) {
+                        _ppprtk->setStecBoost(boost_n, boost_m);
+                    }
+                }
                 
                 if (_ppprtk->enabled())
                 {

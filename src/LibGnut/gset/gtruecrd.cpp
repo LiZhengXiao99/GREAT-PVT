@@ -2,7 +2,7 @@
 *
 * @file        gtruecrd.cpp
 * @brief       true coordinate reader for .true_crd files
-* @author      GREAT-WHU
+* @author      GREAT-WHU / Li Zhengxiao
 * @version     1.0.0
 * @date        2024-08-29
 *

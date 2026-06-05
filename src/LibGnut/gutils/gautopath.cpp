@@ -9,7 +9,7 @@
  *
  * @file        gautopath.cpp
  * @brief       Auto-discover GNSS input files from a base directory
- * @author      Auto-generated
+ * @author      Li Zhengxiao
  * @version     1.0.0
  * @date        2025-05-27
  *

@@ -7,7 +7,7 @@
 *
 * @file        gautopath.h
 * @brief       auto file discovery based on basepath + time info
-* @author      AI Assistant
+* @author      Li Zhengxiao
 * @version     1.0.0
 * @date        2025-05-27
 *

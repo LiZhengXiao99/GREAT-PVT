@@ -1,6 +1,7 @@
 /**
  * @file         t_gppprtk.h
  * @brief        PPP-RTK constraint builder for single-station AUG
+ * @author       Li Zhengxiao
  * @version      1.0
  * @date         2025-05-23
  */
@@ -68,6 +69,10 @@ public:
     // IQR-based outlier rejection for STEC constraints. 0 = disabled, 1 = enabled.
     void setIqrEnabled(bool enabled) { _iqrEnabled = enabled; }
 
+    // Boost STEC weight for first N epochs by factor M (variance divided by M^2).
+    // n <= 0 disables boost.
+    void setStecBoost(int n, double m) { _stecBoostN = n; _stecBoostM = m; }
+
 private:
     bool _buildStecConstraints(const AugEpoch& aug,
                                t_gallpar& param,
@@ -97,6 +102,9 @@ private:
     map<char, string> _last_ref;  ///< last epoch reference sat per system (G/E/C/J/I)
     double _outlierThres;         ///< outlier rejection threshold for AUG constraints (m), 0=disabled
     bool _iqrEnabled;             ///< IQR-based outlier rejection for STEC constraints
+    int _stecBoostN;              ///< boost STEC weight for first N epochs, 0=disabled
+    double _stecBoostM;           ///< noise shrink factor (variance divided by M^2)
+    int _epochCount;              ///< number of epochs with AUG constraints processed
 };
 
 } // namespace great
