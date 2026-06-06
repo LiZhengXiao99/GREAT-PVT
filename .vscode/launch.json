@@ -35,7 +35,7 @@
             "console": "integratedTerminal",
             "args": [  
                         "${workspaceFolder}/data/2023305/GREAT_PPPFLT_KIN_DF_Fixed_PPPRTK.xml",
-                        "${workspaceFolder}/data/2023305/Jp/usr_obs",
+                        "${workspaceFolder}/data/2023305/GA_wide/GA_wide_usr",
                         "-j", "10"
                     ],
         },
@@ -67,7 +67,7 @@
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",
             "args": [
-                "--svr_usr", "./data/2023305/Jp/svr_obs/*.23o", "./data/2023305/Jp/usr_obs/*.23o"
+                "--svr_usr", "./data/2023305/GA_wide/GA_wide_svr/*.rnx", "./data/2023305/GA_wide/GA_wide_usr/*.rnx"
             ],
         },
         {

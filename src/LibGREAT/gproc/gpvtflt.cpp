@@ -4521,7 +4521,8 @@ void great::t_gpvtflt::_predictTropo()
                         }
                         else
                         {
-                            init_var = aug_zwd_std * aug_zwd_std;
+                            double s = fabs(_trop_init) * aug_zwd_std;
+                            init_var = s * s;
                         }
                         _initx(i, aug_zwd, init_var);
                         if (_spdlog)

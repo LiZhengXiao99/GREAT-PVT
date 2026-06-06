@@ -438,8 +438,9 @@ bool t_gppprtk::_buildZwdConstraints(const AugEpoch& aug,
     if (_tropCfg > 0.0) {
         var = _tropCfg * _tropCfg;
     } else if (_tropCfg < 0.0) {
-        var = aug.zwd_std0 * aug.zwd_std0;
-        if (var < 1e-12) var = 0.005 * 0.005; // fallback 5mm
+        double s = fabs(_tropCfg) * aug.zwd_std0;
+        if (s < 1e-6) s = 1e-6; // fallback to avoid extreme small variance
+        var = s * s;
     } else {
         return false; // ZWD disabled when _tropCfg == 0
     }
@@ -474,7 +475,8 @@ double t_gppprtk::_resolveVar(double cfgVal, double augSigma)
     if (cfgVal > 0.0) {
         return cfgVal * cfgVal;
     } else if (cfgVal < 0.0) {
-        return augSigma * augSigma;
+        double s = fabs(cfgVal) * augSigma;
+        return s * s;
     }
     return 999999.0;
 }
